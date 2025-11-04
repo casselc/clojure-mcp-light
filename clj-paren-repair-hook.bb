@@ -289,21 +289,19 @@
 (defn -main []
   (try
     (let [input-json (slurp *in*)
-          _ (spit "hook-logs/delimiter-hook-debug.log"
-                  (str "INPUT: " input-json "\n")
-                  :append true)
+          _ (log-msg "INPUT:" input-json)
           hook-input (json/parse-string input-json true)
           response (process-hook hook-input)
-          _ (spit "hook-logs/delimiter-hook-debug.log"
-                  (str "OUTPUT: " (json/generate-string response) "\n\n")
-                  :append true)]
+          _ (log-msg "OUTPUT:" (json/generate-string response))]
       (when response
         (println (json/generate-string response)))
       (System/exit 0))
     (catch Exception e
+      (log-msg "Hook error:" (.getMessage e))
+      (log-msg "Stack trace:" (with-out-str (.printStackTrace e)))
       (binding [*out* *err*]
         (println "Hook error:" (.getMessage e))
         (println "Stack trace:" (with-out-str (.printStackTrace e))))
       (System/exit 2))))
 
-#_(apply -main *command-line-args*)
+(apply -main *command-line-args*)
