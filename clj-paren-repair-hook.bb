@@ -102,16 +102,20 @@
 (defn backup-path
   "Generate deterministic backup file path for a given file and session"
   [file-path session-id]
-  (let [file-name (-> file-path
-                      (clojure.string/replace #"/" "_")
-                      (clojure.string/replace #"\\" "_"))]
-    (str "/tmp/claude-hook-backup-" session-id "-" file-name)))
+  (let [tmp-dir (System/getProperty "java.io.tmpdir")
+        session-dir (str "claude-hook-backup-" session-id)
+        ;; Remove leading / or drive letter (C:) to make relative
+        relative-path (clojure.string/replace-first file-path #"^[A-Za-z]:|^/" "")]
+    (.getPath (clojure.java.io/file tmp-dir session-dir relative-path))))
 
 (defn backup-file
   "Backup file to temp location, returns backup path"
   [file-path session-id]
   (let [backup (backup-path file-path session-id)
+        backup-file (clojure.java.io/file backup)
         content (slurp file-path)]
+    ;; Ensure parent directories exist
+    (.mkdirs (.getParentFile backup-file))
     (spit backup content)
     backup))
 
