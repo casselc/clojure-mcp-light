@@ -99,6 +99,37 @@
   (some #(clojure.string/ends-with? file-path %)
         [".clj" ".cljs" ".cljc" ".bb" ".edn"]))
 
+(defn backup-path
+  "Generate deterministic backup file path for a given file and session"
+  [file-path session-id]
+  (let [file-name (-> file-path
+                      (clojure.string/replace #"/" "_")
+                      (clojure.string/replace #"\\" "_"))]
+    (str "/tmp/claude-hook-backup-" session-id "-" file-name)))
+
+(defn backup-file
+  "Backup file to temp location, returns backup path"
+  [file-path session-id]
+  (let [backup (backup-path file-path session-id)
+        content (slurp file-path)]
+    (spit backup content)
+    backup))
+
+(defn restore-file
+  "Restore file from backup and delete backup"
+  [file-path backup-path]
+  (when (.exists (clojure.java.io/file backup-path))
+    (let [backup-content (slurp backup-path)]
+      (spit file-path backup-content)
+      (clojure.java.io/delete-file backup-path)
+      true)))
+
+(defn delete-backup
+  "Delete backup file if it exists"
+  [backup-path]
+  (when (.exists (clojure.java.io/file backup-path))
+    (clojure.java.io/delete-file backup-path)))
+
 (defn process-pre-write
   [hook-input]
   (let [tool-input (:tool_input hook-input)
@@ -127,21 +158,62 @@
          {:hookEventName "PreToolUse"
           :permissionDecision "allow"}}))))
 
+(defn process-pre-edit
+  "Backup file before Edit operation"
+  [hook-input]
+  (let [tool-input (:tool_input hook-input)
+        file-path (:file_path tool-input)
+        session-id (:session_id hook-input)]
+
+    (if-not (clojure-file? file-path)
+      ;; Not a Clojure file, allow without backup
+      {:hookSpecificOutput
+       {:hookEventName "PreToolUse"
+        :permissionDecision "allow"}}
+
+      ;; Clojure file - create backup and allow
+      (try
+        (backup-file file-path session-id)
+        {:hookSpecificOutput
+         {:hookEventName "PreToolUse"
+          :permissionDecision "allow"}}
+        (catch Exception e
+          ;; Backup failed, but still allow edit
+          (binding [*out* *err*]
+            (println "Warning: Failed to backup file:" (.getMessage e)))
+          {:hookSpecificOutput
+           {:hookEventName "PreToolUse"
+            :permissionDecision "allow"}})))))
+
 (defn process-post-edit
+  "Check edited file and restore from backup if unfixable delimiter errors"
   [hook-input]
   (let [tool-input (:tool_input hook-input)
         tool-response (:tool_response hook-input)
-        file-path (:file_path tool-input)]
+        file-path (:file_path tool-input)
+        session-id (:session_id hook-input)
+        backup (backup-path file-path session-id)]
 
     ;; PostToolUse only fires on success, so if we're here, the edit succeeded
     (when (and (clojure-file? file-path)
                tool-response)
       (let [file-content (slurp file-path)]
-        (when (delimiter-error? file-content)
-          (when-let [fixed-content (fix-delimiters file-content)]
-            (spit file-path fixed-content)
-            (binding [*out* *err*]
-              (println "Auto-fixed delimiter errors in" file-path))))))
+        (if (delimiter-error? file-content)
+          ;; Has delimiter error - try to fix
+          (if-let [fixed-content (fix-delimiters file-content)]
+            ;; Successfully fixed
+            (do
+              (spit file-path fixed-content)
+              (delete-backup backup)
+              (binding [*out* *err*]
+                (println "Auto-fixed delimiter errors in" file-path)))
+            ;; Could not fix - restore backup
+            (do
+              (restore-file file-path backup)
+              (binding [*out* *err*]
+                (println "Warning: Delimiter errors could not be fixed, restored from backup:" file-path))))
+          ;; No delimiter error - just cleanup backup
+          (delete-backup backup))))
 
     nil))
 
@@ -152,6 +224,9 @@
     (cond
       (and (= hook-event "PreToolUse") (= tool-name "Write"))
       (process-pre-write hook-input)
+
+      (and (= hook-event "PreToolUse") (= tool-name "Edit"))
+      (process-pre-edit hook-input)
 
       (and (= hook-event "PostToolUse") (= tool-name "Edit"))
       (process-post-edit hook-input)
@@ -182,4 +257,4 @@
         (println "Stack trace:" (with-out-str (.printStackTrace e))))
       (System/exit 2))))
 
-(apply -main *command-line-args*)
+#_(apply -main *command-line-args*)

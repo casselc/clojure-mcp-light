@@ -1,8 +1,14 @@
 {
+  "permissions": {
+    "allow": [
+      "mcp__clojure-mcp__clojure_eval",
+      "Bash(git add:*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
