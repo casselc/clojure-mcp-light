@@ -3,7 +3,8 @@
          '[clojure.string :as str]
          '[edamame.core :as e]
          '[clojure.java.shell :as shell]
-         '[cheshire.core :as json])
+         '[cheshire.core :as json]
+         '[clojure.tools.cli :refer [parse-opts]])
 
 ;; ============================================================================
 ;; Delimiter Error Detection and Repair Functions
@@ -218,7 +219,7 @@
                   (b/write-bencode out {"op" "close" "session" session})
                   (.close s)
                   (println "✋ Evaluation interrupted.")
-                  result))))))))
+                  result)))))))))
 
 ;; Main evaluation function with formatted output
 
@@ -235,3 +236,95 @@
       (println (str "=> " v))
       (println "*============================*"))
     result))
+
+;; ============================================================================
+;; Command-line interface
+;; ============================================================================
+
+
+(def cli-options
+  [["-p" "--port PORT" "nREPL port (default: from .nrepl-port or NREPL_PORT env)"
+    :parse-fn parse-long
+    :validate [#(> % 0) "Must be a positive number"]]
+   ["-H" "--host HOST" "nREPL host (default: 127.0.0.1 or NREPL_HOST env)"]
+   ["-t" "--timeout MILLISECONDS" "Timeout in milliseconds (default: 120000)"
+    :parse-fn parse-long
+    :validate [#(> % 0) "Must be a positive number"]]
+   ["-h" "--help" "Show this help message"]])
+
+(defn usage [options-summary]
+  (str/join \newline
+            ["clojure-nrepl-eval - Evaluate Clojure code via nREPL"
+             ""
+             "Usage: clojure-nrepl-eval [OPTIONS] CODE"
+             ""
+             "Options:"
+             options-summary
+             ""
+             "Environment Variables:"
+             "  NREPL_PORT    Default nREPL port"
+             "  NREPL_HOST    Default nREPL host"
+             ""
+             "Examples:"
+             "  clojure-nrepl-eval \"(+ 1 2 3)\""
+             "  clojure-nrepl-eval --port 7888 \"(println \\\"Hello\\\")\""
+             "  clojure-nrepl-eval --timeout 5000 \"(Thread/sleep 10000)\""]))
+
+(defn error-msg [errors]
+  (str "Error parsing command line:\n\n"
+       (str/join \newline errors)))
+
+(defn get-port
+  "Get port from options, environment, or .nrepl-port file.
+  Returns nil if no port can be found."
+  [opts]
+  (or (:port opts)
+      (some-> (System/getenv "NREPL_PORT") parse-long)
+      (slurp-nrepl-port)))
+
+(defn get-host
+  "Get host from options or environment"
+  [opts]
+  (or (:host opts)
+      (System/getenv "NREPL_HOST")
+      "127.0.0.1"))
+
+(defn -main [& args]
+  (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
+    (cond
+      (:help options)
+      (println (usage summary))
+
+      errors
+      (do
+        (binding [*out* *err*]
+          (println (error-msg errors))
+          (println)
+          (println (usage summary)))
+        (System/exit 1))
+
+      (empty? arguments)
+      (do
+        (binding [*out* *err*]
+          (println "Error: No code provided")
+          (println)
+          (println (usage summary)))
+        (System/exit 1))
+
+      :else
+      (let [port (get-port options)
+            expr (first arguments)]
+        (if port
+          (eval-and-print {:host (get-host options)
+                          :port port
+                          :expr expr
+                          :timeout-ms (:timeout options)})
+          (do
+            (binding [*out* *err*]
+              (println "Error: No nREPL port found")
+              (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
+            (System/exit 1)))))))
+
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
+
