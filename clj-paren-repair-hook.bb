@@ -197,25 +197,28 @@
             (delete-backup backup)
             nil))))))
 
-(defn process-hook
+(defmulti process-hook
+  (fn [hook-input]
+    [(:hook_event_name hook-input) (:tool_name hook-input)]))
+
+(defmethod process-hook ["PreToolUse" "Write"]
   [hook-input]
-  (let [hook-event (:hook_event_name hook-input)
-        tool-name (:tool_name hook-input)]
-    (cond
-      (and (= hook-event "PreToolUse") (= tool-name "Write"))
-      (process-pre-write hook-input)
+  (process-pre-write hook-input))
 
-      (and (= hook-event "PreToolUse") (= tool-name "Edit"))
-      (process-pre-edit hook-input)
+(defmethod process-hook ["PreToolUse" "Edit"]
+  [hook-input]
+  (process-pre-edit hook-input))
 
-      (and (= hook-event "PostToolUse") (= tool-name "Edit"))
-      (process-post-edit hook-input)
+(defmethod process-hook ["PostToolUse" "Edit"]
+  [hook-input]
+  (process-post-edit hook-input))
 
-      :else
-      (when (= hook-event "PreToolUse")
-        {:hookSpecificOutput
-         {:hookEventName "PreToolUse"
-          :permissionDecision "allow"}}))))
+(defmethod process-hook :default
+  [hook-input]
+  (when (= (:hook_event_name hook-input) "PreToolUse")
+    {:hookSpecificOutput
+     {:hookEventName "PreToolUse"
+      :permissionDecision "allow"}}))
 
 (defn -main []
   (try
