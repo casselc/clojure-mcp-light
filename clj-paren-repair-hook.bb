@@ -2,7 +2,9 @@
 
 (require '[edamame.core :as e]
          '[clojure.java.shell :as shell]
-         '[cheshire.core :as json])
+         '[cheshire.core :as json]
+         '[clojure.string :as string]
+         '[clojure.java.io :as io])
 
 ;; ============================================================================
 ;; Logging Configuration
@@ -17,9 +19,9 @@
   (when *enable-logging*
     (try
       (let [timestamp (java.time.LocalDateTime/now)
-            msg (str timestamp " - " (clojure.string/join " " args) "\n")]
+            msg (str timestamp " - " (string/join " " args) "\n")]
         (spit *log-file* msg :append true))
-      (catch Exception e
+      (catch Exception _
         ;; Silently fail - don't break hook if logging fails
         nil))))
 
@@ -55,7 +57,7 @@
     (if (zero? exit-code)
       (try
         (json/parse-string (:out result) true)
-        (catch Exception e
+        (catch Exception _
           {:success false}))
       {:success false})))
 
@@ -75,7 +77,7 @@
 ;; ============================================================================
 
 (defn clojure-file? [file-path]
-  (some #(clojure.string/ends-with? file-path %)
+  (some #(string/ends-with? file-path %)
         [".clj" ".cljs" ".cljc" ".bb" ".edn"]))
 
 (defn backup-path
@@ -84,14 +86,14 @@
   (let [tmp-dir (System/getProperty "java.io.tmpdir")
         session-dir (str "claude-hook-backup-" session-id)
         ;; Remove leading / or drive letter (C:) to make relative
-        relative-path (clojure.string/replace-first file-path #"^[A-Za-z]:|^/" "")]
-    (.getPath (clojure.java.io/file tmp-dir session-dir relative-path))))
+        relative-path (string/replace-first file-path #"^[A-Za-z]:|^/" "")]
+    (.getPath (io/file tmp-dir session-dir relative-path))))
 
 (defn backup-file
   "Backup file to temp location, returns backup path"
   [file-path session-id]
   (let [backup (backup-path file-path session-id)
-        backup-file (clojure.java.io/file backup)
+        backup-file (io/file backup)
         content (slurp file-path)]
     ;; Ensure parent directories exist
     (.mkdirs (.getParentFile backup-file))
@@ -101,17 +103,17 @@
 (defn restore-file
   "Restore file from backup and delete backup"
   [file-path backup-path]
-  (when (.exists (clojure.java.io/file backup-path))
+  (when (.exists (io/file backup-path))
     (let [backup-content (slurp backup-path)]
       (spit file-path backup-content)
-      (clojure.java.io/delete-file backup-path)
+      (io/delete-file backup-path)
       true)))
 
 (defn delete-backup
   "Delete backup file if it exists"
   [backup-path]
-  (when (.exists (clojure.java.io/file backup-path))
-    (clojure.java.io/delete-file backup-path)))
+  (when (.exists (io/file backup-path))
+    (io/delete-file backup-path)))
 
 (defn process-pre-write
   [{:keys [tool_input]}]
