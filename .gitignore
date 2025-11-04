@@ -14,3 +14,6 @@ hook-logs/
 
 # nREPL port file
 .nrepl-port
+
+# Claude Code local config
+.claude/

@@ -4,6 +4,27 @@
 
 Automatic delimiter fixing for Clojure files in Claude Code using hooks and parinfer, plus a standalone nREPL evaluation tool.
 
+## Philosophy
+
+This project explores **minimal tooling** for Clojure development with Claude Code. Rather than building a comprehensive coding assistant, we're testing whether smart parinfer application combined with REPL evaluation is sufficient for productive Clojure development.
+
+**Why minimal tooling?**
+
+- Claude Code may be fine-tuned to use its own built-in tools effectively
+- Simpler tooling is easier to maintain and understand
+- Potentially supports Claude Code Web (which doesn't support MCP servers)
+- If minimal tools are sufficient, that's valuable for the Clojure community to know
+- Less complexity means fewer moving parts and potential issues
+
+**How is this different from clojure-mcp?**
+
+[ClojureMCP](https://github.com/bhauman/clojure-mcp) is a full coding assistant (minus the LLM loop) with comprehensive Clojure tooling. This project takes the opposite approach: find the minimum viable tooling needed to get decent Clojure support while leveraging Claude Code's native capabilities.
+
+If this minimal approach proves sufficient, it demonstrates that Clojure developers can achieve good results with just:
+- Smart delimiter fixing (parinfer)
+- REPL evaluation
+- Claude Code's built-in tools
+
 ## Overview
 
 Clojure-mcp-light provides two main tools:
