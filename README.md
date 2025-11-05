@@ -128,19 +128,46 @@ Clojure-mcp-light provides two main tools:
 
    See [settings_example/settings.local.json](settings_example/settings.local.json) for a complete example.
 
-## Using with ClojureMCP
+## Slash Commands
 
-This project works well with [ClojureMCP](https://github.com/bhauman/clojure-mcp) for REPL integration. You can configure ClojureMCP to only enable the eval tool, avoiding conflicts with the delimiter fixing hooks.
+This project includes custom slash commands for Claude Code to streamline your Clojure workflow:
 
-Create a `.clojure-mcp/config.edn` file in your project:
+### Available Commands
 
-```clojure
-{:enabled-tools [:clojure_eval]}
+- **/start-nrepl** - Automatically starts an nREPL server in the background, detects the port, and creates a `.nrepl-port` file
+- **/clojure-eval** - Provides information about using `clojure-nrepl-eval.bb` for REPL-driven development
+
+### Setup
+
+Copy or symlink the command files to your project's `.claude/commands/` directory:
+
+```bash
+# Create the commands directory if it doesn't exist
+mkdir -p .claude/commands
+
+# Copy commands
+cp commands/*.md .claude/commands/
+
+# Or create symlinks (recommended - stays in sync with updates)
+ln -s $(pwd)/commands/clojure-eval.md .claude/commands/clojure-eval.md
+ln -s $(pwd)/commands/start-nrepl.md .claude/commands/start-nrepl.md
 ```
 
-This ensures that ClojureMCP only provides the REPL evaluation functionality while the hooks handle delimiter fixing.
+### Usage
 
-See [settings_example/clojure-mcp-config.edn](settings_example/clojure-mcp-config.edn) for an example configuration.
+Once set up, you can use these commands in Claude Code conversations:
+
+```
+/start-nrepl
+```
+
+This will start an nREPL server and set up the `.nrepl-port` file automatically.
+
+```
+/clojure-eval
+```
+
+This provides Claude with context about REPL evaluation, making it easier to work with your running Clojure environment.
 
 ## clojure-nrepl-eval.bb - Standalone nREPL Evaluator
 
