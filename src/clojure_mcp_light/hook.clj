@@ -32,13 +32,23 @@
   (some #(string/ends-with? file-path %)
         [".clj" ".cljs" ".cljc" ".bb" ".edn"]))
 
+(defn strip-root
+  "Strip the root component from an absolute path to make it relative.
+   Works cross-platform for Unix (/foo/bar) and Windows (C:\\foo\\bar) paths."
+  [file-path]
+  (let [path (java.nio.file.Paths/get file-path (into-array String []))
+        name-count (.getNameCount path)]
+    (if (pos? name-count)
+      ;; Get all name elements (excludes root component)
+      (str (.subpath path 0 name-count))
+      file-path)))
+
 (defn backup-path
   "Generate deterministic backup file path for a given file and session"
   [file-path session-id]
   (let [tmp-dir (System/getProperty "java.io.tmpdir")
         session-dir (str "claude-hook-backup-" session-id)
-        ;; Remove leading / or drive letter (C:) to make relative
-        relative-path (string/replace-first file-path #"^[A-Za-z]:|^/" "")]
+        relative-path (strip-root file-path)]
     (.getPath (io/file tmp-dir session-dir relative-path))))
 
 (defn backup-file
