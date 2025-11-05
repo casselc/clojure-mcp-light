@@ -4,6 +4,7 @@ hook-logs/
 # Clojure/LSP directories
 .clj-kondo/
 .lsp/
+.cpcache/
 
 # ClojureMCP config
 .clojure-mcp/
@@ -11,6 +12,7 @@ hook-logs/
 # Temporary files
 *~
 \#*\#
+.#*
 
 # nREPL port file
 .nrepl-port

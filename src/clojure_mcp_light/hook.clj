@@ -1,20 +1,9 @@
-#!/usr/bin/env bb
-
-;; ==============================================================================
-;; NOTE: This is a legacy standalone script maintained for backwards compatibility.
-;;
-;; RECOMMENDED: Install via bbin for easier updates:
-;;   bbin install .
-;;
-;; After installation, configure your hooks to use the globally installed
-;; `clj-paren-repair-claude-hook` command (typically in ~/.local/bin/).
-;; ==============================================================================
-
-(require '[edamame.core :as e]
-         '[clojure.java.shell :as shell]
-         '[cheshire.core :as json]
-         '[clojure.string :as string]
-         '[clojure.java.io :as io])
+(ns clojure-mcp-light.hook
+  "Claude Code hook for delimiter error detection and repair"
+  (:require [cheshire.core :as json]
+            [clojure.string :as string]
+            [clojure.java.io :as io]
+            [clojure-mcp-light.delimiter-repair :refer [delimiter-error? fix-delimiters]]))
 
 ;; ============================================================================
 ;; Logging Configuration
@@ -34,53 +23,6 @@
       (catch Exception _
         ;; Silently fail - don't break hook if logging fails
         nil))))
-
-;; ============================================================================
-;; Delimiter Error Detection and Repair Functions
-;; ============================================================================
-
-(defn delimiter-error?
-  "Returns true if the string has a delimiter error specifically.
-   Checks both that it's an :edamame/error and has delimiter info."
-  [s]
-  (try
-    (e/parse-string-all s)
-    false ; No error = no delimiter error
-    (catch clojure.lang.ExceptionInfo ex
-      (let [data (ex-data ex)]
-        (and (= :edamame/error (:type data))
-             (contains? data :edamame/opened-delimiter))))))
-
-(defn parinfer-repair
-  "Attempts to repair delimiter errors using parinfer-rust.
-   Returns a map with:
-   - :success - boolean indicating if repair was successful
-   - :repaired-text - the repaired code (if successful)
-   - :error - error message (if unsuccessful)"
-  [s]
-  (let [result (shell/sh "parinfer-rust"
-                         "--mode" "indent"
-                         "--language" "clojure"
-                         "--output-format" "json"
-                         :in s)
-        exit-code (:exit result)]
-    (if (zero? exit-code)
-      (try
-        (json/parse-string (:out result) true)
-        (catch Exception _
-          {:success false}))
-      {:success false})))
-
-(defn fix-delimiters
-  "Takes a Clojure string and attempts to fix delimiter errors.
-   Returns the repaired string if successful, false otherwise.
-   If no delimiter errors exist, returns the original string."
-  [s]
-  (if (delimiter-error? s)
-    (let [{:keys [text success]} (parinfer-repair s)]
-      (when (and success text (not (delimiter-error? text)))
-        text))
-    s))
 
 ;; ============================================================================
 ;; Claude Code Hook Functions
@@ -124,6 +66,35 @@
   [backup-path]
   (when (.exists (io/file backup-path))
     (io/delete-file backup-path)))
+
+(defn process-pre-write
+  "Process content before write operation.
+  Returns fixed content if Clojure file has delimiter errors, nil otherwise."
+  [file-path content]
+  (when (and (clojure-file? file-path) (delimiter-error? content))
+    (fix-delimiters content)))
+
+(defn process-pre-edit
+  "Process file before edit operation.
+  Creates a backup of Clojure files, returns backup path if created."
+  [file-path session-id]
+  (when (clojure-file? file-path)
+    (backup-file file-path session-id)))
+
+(defn process-post-edit
+  "Process file after edit operation.
+  Compares edited file with backup, fixes delimiters if content changed,
+  and cleans up backup file."
+  [file-path session-id]
+  (when (clojure-file? file-path)
+    (let [backup-file (backup-path file-path session-id)]
+      (try
+        (let [backup-content (try (slurp backup-file) (catch Exception _ nil))
+              file-content (slurp file-path)]
+          (when (not= backup-content file-content)
+            (process-pre-write file-path file-content)))
+        (finally
+          (delete-backup backup-file))))))
 
 (defmulti process-hook
   (fn [hook-input]
@@ -233,5 +204,3 @@
         (println "Hook error:" (.getMessage e))
         (println "Stack trace:" (with-out-str (.printStackTrace e))))
       (System/exit 2))))
-
-(apply -main *command-line-args*)

@@ -1,6 +1,6 @@
 # clojure-mcp-light
 
-> **⚠️ Experimental**: This project is in early stages. We're experimenting with what works to bring better Clojure support to Claude Code.
+> **⚠️ Experimental**: This project is in early stages.
 
 Automatic delimiter fixing for Clojure files in Claude Code using hooks and parinfer, plus a standalone nREPL evaluation tool.
 
@@ -20,6 +20,8 @@ This project explores **minimal tooling** for Clojure development with Claude Co
 
 [ClojureMCP](https://github.com/bhauman/clojure-mcp) is a full coding assistant (minus the LLM loop) with comprehensive Clojure tooling. This project takes the opposite approach: find the minimum viable tooling needed to get decent Clojure support while leveraging Claude Code's native capabilities.
 
+clojure-mcp-light is **NOT** an MCP server but instead provides cli tools that you can directly use in Claude Code.
+
 If this minimal approach proves sufficient, it demonstrates that Clojure developers can achieve good results with just:
 - Smart delimiter fixing (parinfer)
 - REPL evaluation
@@ -29,9 +31,9 @@ If this minimal approach proves sufficient, it demonstrates that Clojure develop
 
 Clojure-mcp-light provides two main tools:
 
-1. **Automatic delimiter fixing hooks** - Detects and fixes delimiter errors (mismatched brackets, parentheses, braces) when working with Clojure files in Claude Code. The hook system intercepts file operations and transparently fixes delimiter issues before they cause problems.
+1. **Automatic delimiter fixing hooks** (`clj-paren-repair-claude-hook`) - Detects and fixes delimiter errors (mismatched brackets, parentheses, braces) when working with Clojure files in Claude Code. The hook system intercepts file operations and transparently fixes delimiter issues before they cause problems.
 
-2. **clojure-nrepl-eval.bb** - A standalone Babashka script for evaluating Clojure code via nREPL with automatic delimiter repair, timeout handling, and formatted output.
+2. **nREPL evaluation tool** (`clj-nrepl-eval`) - A command-line tool for evaluating Clojure code via nREPL with automatic delimiter repair, timeout handling, and formatted output.
 
 ## Features
 
@@ -44,59 +46,40 @@ Clojure-mcp-light provides two main tools:
 ## Requirements
 
 - [Babashka](https://github.com/babashka/babashka) - Fast-starting Clojure scripting environment
+- [bbin](https://github.com/babashka/bbin) - Babashka package manager
 - [parinfer-rust](https://github.com/eraserhd/parinfer-rust) - Delimiter inference and fixing
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) - The Claude CLI tool
 
-## Setup
+## Installation
 
-1. Clone this repository:
+### Install via bbin
+
+1. Install bbin if you haven't already:
+   
+   See https://github.com/babashka/bbin for more details.
+
+2. Install parinfer-rust (required dependency):
    ```bash
-   git clone <repo-url> clojure-mcp-light
-   cd clojure-mcp-light
+   # See https://github.com/eraserhd/parinfer-rust for installation
+   # The parinfer-rust binary must be available on your PATH
    ```
 
-2. Install dependencies:
-
-   **Babashka** (macOS):
+3. Install clojure-mcp-light:
    ```bash
-   brew install babashka/brew/babashka
+   # From GitHub
+   bbin install https://github.com/bhauman/clojure-mcp-light
+   bbin install https://github.com/bhauman/clojure-mcp-light --as clj-nrepl-eval --main-opts '["-m"  "clojure-mcp-light.nrepl-eval"]'
+
+   # Or from local checkout
+   bbin install .
+   bbin install . --as clj-nrepl-eval --main-opts '["-m"  "clojure-mcp-light.nrepl-eval"]'
    ```
 
-   **parinfer-rust**:
+   This installs both commands:
+   - `clj-paren-repair-claude-hook` - Hook for automatic delimiter fixing
+   - `clj-nrepl-eval` - nREPL evaluation tool
 
-   https://github.com/eraserhd/parinfer-rust
-
-   > I had to compile parinfer rust for Apple Silicon and install it manually
-
-   The `parinfer-rust` binary must be on Claude Code's PATH. To check Claude Code's PATH, you can ask Claude to run:
-   ```bash
-   echo $PATH
-   ```
-
-   Install the binary to a directory in the PATH (e.g., `/usr/local/bin`):
-   ```bash
-   # Example: create symbolic link in /usr/local/bin
-   sudo ln -s /path/to/downloaded/parinfer-rust /usr/local/bin/parinfer-rust
-   ```
-
-3. Make the scripts executable:
-   ```bash
-   chmod +x clj-paren-repair-hook.bb
-   chmod +x clojure-nrepl-eval.bb
-   ```
-
-   Optionally, add the `clojure-nrepl-eval.bb` script to your PATH so it can be used from anywhere:
-   ```bash
-   # Example: create symbolic link in /usr/local/bin
-   sudo ln -s $(pwd)/clojure-nrepl-eval.bb /usr/local/bin/clojure-nrepl-eval
-   ```
-
-   Or ensure the directory containing the script is on Claude Code's PATH. To check Claude Code's PATH:
-   ```bash
-   echo $PATH
-   ```
-
-4. Configure Claude Code hooks by adding to `.claude/settings.local.json`:
+4. Configure Claude Code hooks in your project's `.claude/settings.local.json`:
    ```json
    {
      "hooks": {
@@ -106,7 +89,7 @@ Clojure-mcp-light provides two main tools:
            "hooks": [
              {
                "type": "command",
-               "command": "/absolute/path/to/clj-paren-repair-hook.bb"
+               "command": "clj-paren-repair-claude-hook"
              }
            ]
          }
@@ -117,7 +100,7 @@ Clojure-mcp-light provides two main tools:
            "hooks": [
              {
                "type": "command",
-               "command": "/absolute/path/to/clj-paren-repair-hook.bb"
+               "command": "clj-paren-repair-claude-hook"
              }
            ]
          }
@@ -128,6 +111,23 @@ Clojure-mcp-light provides two main tools:
 
    See [settings_example/settings.local.json](settings_example/settings.local.json) for a complete example.
 
+5. Verify installation:
+   ```bash
+   # Test nREPL evaluation (requires running nREPL server)
+   clj-nrepl-eval --port 7888 "(+ 1 2 3)"
+
+   # Test hook manually
+   echo '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"test.clj","content":"(def x 1)"}}' | clj-paren-repair-claude-hook
+   ```
+
+## Legacy Scripts
+
+For users who prefer not to use bbin, standalone Babashka scripts are available:
+- `clj-paren-repair-hook.bb` - Hook script
+- `clojure-nrepl-eval.bb` - nREPL evaluation script
+
+These can be run directly with `bb` or `./script-name.bb` after making them executable. However, **bbin installation is strongly recommended** for easier updates and global access to commands.
+
 ## Slash Commands
 
 This project includes custom slash commands for Claude Code to streamline your Clojure workflow:
@@ -135,7 +135,7 @@ This project includes custom slash commands for Claude Code to streamline your C
 ### Available Commands
 
 - **/start-nrepl** - Automatically starts an nREPL server in the background, detects the port, and creates a `.nrepl-port` file
-- **/clojure-eval** - Provides information about using `clojure-nrepl-eval.bb` for REPL-driven development
+- **/clojure-eval** - Provides information about using `clj-nrepl-eval` for REPL-driven development
 
 ### Setup
 
@@ -169,9 +169,9 @@ This will start an nREPL server and set up the `.nrepl-port` file automatically.
 
 This provides Claude with context about REPL evaluation, making it easier to work with your running Clojure environment.
 
-## clojure-nrepl-eval.bb - Standalone nREPL Evaluator
+## clj-nrepl-eval - nREPL Evaluation Tool
 
-This project includes a standalone Babashka script for evaluating Clojure code via nREPL with automatic delimiter repair.
+The main command-line tool for evaluating Clojure code via nREPL with automatic delimiter repair.
 
 ### Features
 
@@ -185,28 +185,28 @@ This project includes a standalone Babashka script for evaluating Clojure code v
 
 ```bash
 # Evaluate code (port auto-detected from .nrepl-port file or NREPL_PORT env)
-./clojure-nrepl-eval.bb "(+ 1 2 3)"
+clj-nrepl-eval "(+ 1 2 3)"
 
 # Specify port explicitly
-./clojure-nrepl-eval.bb --port 7888 "(println \"Hello\")"
+clj-nrepl-eval --port 7888 "(println \"Hello\")"
 
 # Use short flags
-./clojure-nrepl-eval.bb -p 7889 "(* 5 6)"
+clj-nrepl-eval -p 7889 "(* 5 6)"
 
 # Set timeout (in milliseconds)
-./clojure-nrepl-eval.bb --timeout 5000 "(Thread/sleep 10000)"
+clj-nrepl-eval --timeout 5000 "(Thread/sleep 10000)"
 
 # Show help
-./clojure-nrepl-eval.bb --help
+clj-nrepl-eval --help
 ```
 
 ### Automatic Delimiter Repair
 
-The script automatically fixes missing or mismatched delimiters before evaluation:
+The tool automatically fixes missing or mismatched delimiters before evaluation:
 
 ```bash
 # This will be auto-fixed from "(+ 1 2 3" to "(+ 1 2 3)"
-./clojure-nrepl-eval.bb "(+ 1 2 3"
+clj-nrepl-eval "(+ 1 2 3"
 # => 6
 ```
 
@@ -224,28 +224,28 @@ The script automatically fixes missing or mismatched delimiters before evaluatio
 
 ### Port Configuration
 
-The script needs to connect to an nREPL server. There are three ways to configure the port, checked in this order:
+The command needs to connect to an nREPL server. There are three ways to configure the port, checked in this order:
 
 1. **Command-line flag** (highest priority)
    ```bash
-   ./clojure-nrepl-eval.bb --port 7888 "(+ 1 2)"
+   clj-nrepl-eval --port 7888 "(+ 1 2)"
    ```
 
 2. **Environment variable**
    ```bash
    export NREPL_PORT=7888
-   ./clojure-nrepl-eval.bb "(+ 1 2)"
+   clj-nrepl-eval "(+ 1 2)"
    ```
 
 3. **`.nrepl-port` file** (lowest priority)
 
-   Most Clojure REPLs automatically create a `.nrepl-port` file in your project directory when they start. The script will automatically read this file:
+   Most Clojure REPLs automatically create a `.nrepl-port` file in your project directory when they start. The command will automatically read this file:
    ```bash
    # Start your REPL (creates .nrepl-port automatically)
    clj -M:repl/nrepl
 
-   # In another terminal, the script auto-detects the port
-   ./clojure-nrepl-eval.bb "(+ 1 2)"
+   # In another terminal, auto-detects the port
+   clj-nrepl-eval "(+ 1 2)"
    ```
 
    You can also create this file manually:
