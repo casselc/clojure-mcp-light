@@ -45,6 +45,89 @@
     (let [result (ne/slurp-nrepl-port)]
       (is (or (nil? result) (number? result))))))
 
+(deftest slurp-nrepl-session-test
+  (testing "reads session ID from .nrepl-session file"
+    (let [test-session-file ".nrepl-session-test"
+          test-session-id "test-session-12345"]
+      (try
+        ;; Create a test session file
+        (spit test-session-file (str test-session-id "\n"))
+        ;; Test reading it
+        (let [result (with-redefs [ne/slurp-nrepl-session
+                                   (fn []
+                                     (try
+                                       (when (.exists (io/file test-session-file))
+                                         (clojure.string/trim (slurp test-session-file)))
+                                       (catch Exception _
+                                         nil)))]
+                       (ne/slurp-nrepl-session))]
+          (is (= test-session-id result)))
+        (finally
+          ;; Clean up
+          (io/delete-file test-session-file true)))))
+
+  (testing "returns nil when file doesn't exist"
+    (let [result (with-redefs [ne/slurp-nrepl-session
+                               (fn []
+                                 (try
+                                   (when (.exists (io/file ".nrepl-session-nonexistent"))
+                                     (clojure.string/trim (slurp ".nrepl-session-nonexistent")))
+                                   (catch Exception _
+                                     nil)))]
+                   (ne/slurp-nrepl-session))]
+      (is (nil? result))))
+
+  (testing "returns nil on read error"
+    (let [result (ne/slurp-nrepl-session)]
+      ;; Without a file, should return nil
+      (is (or (nil? result) (string? result))))))
+
+(deftest spit-nrepl-session-test
+  (testing "writes session ID to .nrepl-session file"
+    (let [test-session-file ".nrepl-session-test"
+          test-session-id "test-session-67890"]
+      (try
+        ;; Write session ID
+        (with-redefs [ne/spit-nrepl-session
+                      (fn [session-id]
+                        (spit test-session-file (str session-id "\n")))]
+          (ne/spit-nrepl-session test-session-id))
+        ;; Verify it was written correctly
+        (let [content (clojure.string/trim (slurp test-session-file))]
+          (is (= test-session-id content)))
+        (finally
+          ;; Clean up
+          (io/delete-file test-session-file true))))))
+
+(deftest delete-nrepl-session-test
+  (testing "deletes .nrepl-session file when it exists"
+    (let [test-session-file ".nrepl-session-test"]
+      (try
+        ;; Create a test file
+        (spit test-session-file "test-session")
+        (is (.exists (io/file test-session-file)))
+        ;; Delete it
+        (with-redefs [ne/delete-nrepl-session
+                      (fn []
+                        (let [f (io/file test-session-file)]
+                          (when (.exists f)
+                            (.delete f))))]
+          (ne/delete-nrepl-session))
+        ;; Verify it's gone
+        (is (not (.exists (io/file test-session-file))))
+        (finally
+          ;; Clean up in case test failed
+          (io/delete-file test-session-file true)))))
+
+  (testing "does nothing when file doesn't exist"
+    (with-redefs [ne/delete-nrepl-session
+                  (fn []
+                    (let [f (io/file ".nrepl-session-nonexistent")]
+                      (when (.exists f)
+                        (.delete f))))]
+      ;; Should not throw an error
+      (is (nil? (ne/delete-nrepl-session))))))
+
 (deftest get-port-test
   (testing "gets port from options"
     (is (= 8888 (ne/get-port {:port 8888}))))

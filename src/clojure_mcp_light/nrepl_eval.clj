@@ -83,6 +83,24 @@
   (when (.exists (java.io.File. ".nrepl-port"))
     (parse-long (str/trim (slurp ".nrepl-port")))))
 
+(defn slurp-nrepl-session []
+  "Read session ID from .nrepl-session file. Returns nil if file doesn't exist or on error."
+  (try
+    (when (.exists (java.io.File. ".nrepl-session"))
+      (str/trim (slurp ".nrepl-session")))
+    (catch Exception _
+      nil)))
+
+(defn spit-nrepl-session [session-id]
+  "Write session ID to .nrepl-session file."
+  (spit ".nrepl-session" (str session-id "\n")))
+
+(defn delete-nrepl-session []
+  "Delete .nrepl-session file if it exists."
+  (let [f (java.io.File. ".nrepl-session")]
+    (when (.exists f)
+      (.delete f))))
+
 ;; Timeout and interrupt handling
 
 (defn try-read-msg
