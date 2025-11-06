@@ -242,6 +242,7 @@
    ["-t" "--timeout MILLISECONDS" "Timeout in milliseconds (default: 120000)"
     :parse-fn parse-long
     :validate [#(> % 0) "Must be a positive number"]]
+   ["-r" "--reset-session" "Reset the persistent nREPL session"]
    ["-h" "--help" "Show this help message"]])
 
 (defn usage [options-summary]
@@ -249,9 +250,15 @@
             ["clj-nrepl-eval - Evaluate Clojure code via nREPL"
              ""
              "Usage: clj-nrepl-eval [OPTIONS] CODE"
+             "       clj-nrepl-eval --reset-session"
              ""
              "Options:"
              options-summary
+             ""
+             "Session Persistence:"
+             "  Sessions are persistent by default. State (vars, namespaces, loaded"
+             "  libraries) persists across invocations until the nREPL server restarts"
+             "  or --reset-session is used."
              ""
              "Environment Variables:"
              "  NREPL_PORT    Default nREPL port"
@@ -260,7 +267,9 @@
              "Examples:"
              "  clj-nrepl-eval \"(+ 1 2 3)\""
              "  clj-nrepl-eval --port 7888 \"(println \\\"Hello\\\")\""
-             "  clj-nrepl-eval --timeout 5000 \"(Thread/sleep 10000)\""]))
+             "  clj-nrepl-eval --timeout 5000 \"(Thread/sleep 10000)\""
+             "  clj-nrepl-eval --reset-session"
+             "  clj-nrepl-eval --reset-session \"(def x 1)\""]))
 
 (defn error-msg [errors]
   (str "Error parsing command line:\n\n"
@@ -294,6 +303,26 @@
           (println)
           (println (usage summary)))
         (System/exit 1))
+
+      ;; Handle --reset-session flag
+      (:reset-session options)
+      (do
+        (delete-nrepl-session)
+        (println "Session reset: .nrepl-session file deleted")
+        ;; If code is provided, continue to evaluate it with new session
+        (when (seq arguments)
+          (let [port (get-port options)
+                expr (first arguments)]
+            (if port
+              (eval-and-print {:host (get-host options)
+                               :port port
+                               :expr expr
+                               :timeout-ms (:timeout options)})
+              (do
+                (binding [*out* *err*]
+                  (println "Error: No nREPL port found")
+                  (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
+                (System/exit 1))))))
 
       (empty? arguments)
       (do
