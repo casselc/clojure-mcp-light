@@ -41,47 +41,7 @@
 (defn next-id []
   (str (java.util.UUID/randomUUID)))
 
-(defn eval-expr
-  "Execute :expr in nREPL on given :host (defaults to localhost)
-  and :port. Returns map with :vals. Prints any output to *out*.
-
-  :vals is a vector with eval results from all the top-level
-  forms in the :expr. See the README for an example."
-  [{:keys [host port expr]}]
-  (let [fixed-expr (or (fix-delimiters expr) expr)
-        s (java.net.Socket. (or host "localhost") (coerce-long port))
-        out (.getOutputStream s)
-        in (java.io.PushbackInputStream. (.getInputStream s))
-        id (next-id)
-        _ (b/write-bencode out {"op" "clone" "id" id})
-        {session :new-session} (read-msg (b/read-bencode in))
-        id (next-id)
-        _ (b/write-bencode out {"op" "eval" "code" fixed-expr "id" id "session" session})]
-    (loop [m {:vals [] :responses []}]
-      (let [{:keys [status out value err] :as resp} (read-reply in session id)]
-        (when out
-          (print out)
-          (flush))
-        (when err
-          (binding [*out* *err*]
-            (print err)
-            (flush)))
-        (let [m (cond-> (update m :responses conj resp)
-                  value
-                  (update :vals conj value))]
-          (if (= ["done"] status)
-            m
-            (recur m)))))))
-
-;; Utility functions
-
-(defn now-ms [] (System/currentTimeMillis))
-
-(defn ->uuid [] (str (java.util.UUID/randomUUID)))
-
-(defn slurp-nrepl-port []
-  (when (.exists (java.io.File. ".nrepl-port"))
-    (parse-long (str/trim (slurp ".nrepl-port")))))
+;; Session file I/O utilities
 
 (defn slurp-nrepl-session []
   "Read session ID from .nrepl-session file. Returns nil if file doesn't exist or on error."
@@ -101,6 +61,60 @@
     (when (.exists f)
       (.delete f))))
 
+(defn eval-expr
+  "Execute :expr in nREPL on given :host (defaults to localhost)
+  and :port. Returns map with :vals. Prints any output to *out*.
+
+  :vals is a vector with eval results from all the top-level
+  forms in the :expr. See the README for an example.
+
+  Uses persistent sessions: reuses existing session ID from .nrepl-session
+  or creates a new one if none exists. Session persists across invocations."
+  [{:keys [host port expr]}]
+  (let [fixed-expr (or (fix-delimiters expr) expr)
+        s (java.net.Socket. (or host "localhost") (coerce-long port))
+        out (.getOutputStream s)
+        in (java.io.PushbackInputStream. (.getInputStream s))
+        ;; Try to reuse existing session or create new one
+        existing-session (slurp-nrepl-session)
+        session (if existing-session
+                  existing-session
+                  (let [id (next-id)
+                        _ (b/write-bencode out {"op" "clone" "id" id})
+                        {new-session :new-session} (read-msg (b/read-bencode in))]
+                    (spit-nrepl-session new-session)
+                    new-session))
+        eval-id (next-id)
+        _ (b/write-bencode out {"op" "eval" "code" fixed-expr "id" eval-id "session" session})]
+    (loop [m {:vals [] :responses []}]
+      (let [{:keys [status out value err] :as resp} (read-reply in session eval-id)]
+        (when out
+          (print out)
+          (flush))
+        (when err
+          (binding [*out* *err*]
+            (print err)
+            (flush)))
+        (let [m (cond-> (update m :responses conj resp)
+                  value
+                  (update :vals conj value))]
+          (if (= ["done"] status)
+            (do
+              ;; Close socket but keep session alive on server
+              (.close s)
+              m)
+            (recur m)))))))
+
+;; Utility functions
+
+(defn now-ms [] (System/currentTimeMillis))
+
+(defn ->uuid [] (str (java.util.UUID/randomUUID)))
+
+(defn slurp-nrepl-port []
+  (when (.exists (java.io.File. ".nrepl-port"))
+    (parse-long (str/trim (slurp ".nrepl-port")))))
+
 ;; Timeout and interrupt handling
 
 (defn try-read-msg
@@ -115,15 +129,24 @@
 
 (defn eval-expr-with-timeout
   "Evaluate expression with timeout support and interrupt handling.
-  If timeout-ms is exceeded, sends an interrupt to the nREPL server."
+  If timeout-ms is exceeded, sends an interrupt to the nREPL server.
+
+  Uses persistent sessions: reuses existing session ID from .nrepl-session
+  or creates a new one if none exists. Session persists across invocations."
   [{:keys [host port expr timeout-ms] :or {timeout-ms 120000}}]
   (let [fixed-expr (or (fix-delimiters expr) expr)
         s (java.net.Socket. (or host "localhost") (coerce-long port))
         out (.getOutputStream s)
         in (java.io.PushbackInputStream. (.getInputStream s))
-        clone-id (next-id)
-        _ (b/write-bencode out {"op" "clone" "id" clone-id})
-        {session :new-session} (read-msg (b/read-bencode in))
+        ;; Try to reuse existing session or create new one
+        existing-session (slurp-nrepl-session)
+        session (if existing-session
+                  existing-session
+                  (let [clone-id (next-id)
+                        _ (b/write-bencode out {"op" "clone" "id" clone-id})
+                        {new-session :new-session} (read-msg (b/read-bencode in))]
+                    (spit-nrepl-session new-session)
+                    new-session))
         eval-id (next-id)
         deadline (+ (now-ms) timeout-ms)
         _ (b/write-bencode out {"op" "eval"
@@ -151,7 +174,7 @@
                 ;; Stop when server says we're done
                 (if (some #{"done"} (:status resp))
                   (do
-                    (b/write-bencode out {"op" "close" "session" session})
+                    ;; Close socket but keep session alive on server
                     (.close s)
                     m)
                   (recur m))))
@@ -179,14 +202,14 @@
                     (if (or (some #{"interrupted"} (:status resp))
                             (some #{"done"} (:status resp)))
                       (do
-                        (b/write-bencode out {"op" "close" "session" session})
+                        ;; Close socket but keep session alive on server
                         (.close s)
                         (println "✋ Evaluation interrupted.")
                         result)
                       (recur (inc i) (update result :responses conj resp))))
                   (recur (inc i) result))
                 (do
-                  (b/write-bencode out {"op" "close" "session" session})
+                  ;; Close socket but keep session alive on server
                   (.close s)
                   (println "✋ Evaluation interrupted.")
                   result)))))))))
@@ -210,7 +233,6 @@
 ;; ============================================================================
 ;; Command-line interface
 ;; ============================================================================
-
 
 (def cli-options
   [["-p" "--port PORT" "nREPL port (default: from .nrepl-port or NREPL_PORT env)"
@@ -286,9 +308,9 @@
             expr (first arguments)]
         (if port
           (eval-and-print {:host (get-host options)
-                          :port port
-                          :expr expr
-                          :timeout-ms (:timeout options)})
+                           :port port
+                           :expr expr
+                           :timeout-ms (:timeout options)})
           (do
             (binding [*out* *err*]
               (println "Error: No nREPL port found")
