@@ -66,10 +66,12 @@
   "Restore file from backup and delete backup"
   [file-path backup-path]
   (when (.exists (io/file backup-path))
-    (let [backup-content (slurp backup-path)]
-      (spit file-path backup-content)
-      (io/delete-file backup-path)
-      true)))
+    (try
+      (let [backup-content (slurp backup-path)]
+        (spit file-path backup-content)
+        true)
+      (finally
+        (io/delete-file backup-path)))))
 
 (defn delete-backup
   "Delete backup file if it exists"
@@ -191,13 +193,14 @@
           (do
             (log-msg "  Delimiter error detected, attempting fix")
             (if-let [fixed-content (fix-delimiters file-content)]
-              (do
+              (try
                 (log-msg "  Fix successful, applying fix and deleting backup")
                 (spit file_path fixed-content)
-                (delete-backup backup)
                 {:hookSpecificOutput
                  {:hookEventName "PostToolUse"
-                  :additionalContext (str "Auto-fixed delimiter errors in " file_path)}})
+                  :additionalContext (str "Auto-fixed delimiter errors in " file_path)}}
+                (finally
+                  (delete-backup backup)))
               (do
                 (log-msg "  Fix failed, restoring from backup:" backup)
                 (restore-file file_path backup)
@@ -205,11 +208,12 @@
                  :reason (str "Delimiter errors could not be auto-fixed. File was restored from backup to previous state: " file_path)
                  :hookSpecificOutput {:hookEventName "PostToolUse"
                                       :additionalContext "There are delimiter errors in the file. So we restored from backup."}})))
-          (do
+          (try
             (log-msg "  No delimiter errors, deleting backup")
-            (delete-backup backup)
             {:reason "No delimiter errors were found in the file."
-             :hookSpecificOutput {:hookEventName "PostToolUse"}}))))))
+             :hookSpecificOutput {:hookEventName "PostToolUse"}}
+            (finally
+              (delete-backup backup))))))))
 
 (defn -main []
   (try
