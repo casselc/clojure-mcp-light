@@ -60,9 +60,49 @@ clj-nrepl-eval "(+ 1 2 3)"
 - Direct bencode protocol implementation for nREPL communication
 - Automatic delimiter repair before evaluation
 - Timeout/interrupt handling for long-running evaluations
-- **Persistent sessions**: Reuses session ID from `.nrepl-session` file across invocations
+- **Persistent sessions**: Reuses session ID from per-target session files
 - Session management: `--reset-session` flag to start fresh session
 - Port detection: CLI flag > NREPL_PORT env > .nrepl-port file
+
+**tmp.clj** - Unified temporary file management for Claude Code sessions
+- Provides session-scoped temporary file paths with automatic cleanup
+- Implements editor session detection with fallback strategies
+- Creates deterministic paths based on user, hostname, session ID, and project
+- Supports automatic cleanup via SessionEnd hook
+- Key functions: `session-root`, `editor-scope-id`, `cleanup-session!`, `get-possible-session-ids`
+
+### Temporary File Management Architecture
+
+The `tmp` namespace provides a unified system for managing temporary files across all components (hooks, nREPL sessions) with automatic cleanup when Claude Code sessions end.
+
+**Directory Structure:**
+```
+$XDG_RUNTIME_DIR (or java.io.tmpdir)
+└── claude-code/
+    └── {user-id}/
+        └── {hostname}/
+            └── {session-id}/           # or ppid-{pid}-{start-time}
+                └── proj-{sha1(path)}/  # per-project isolation
+                    ├── backups/        # Edit operation backups
+                    └── nrepl/          # nREPL session files
+```
+
+**Session ID Strategy:**
+1. Prefer `CML_CLAUDE_CODE_SESSION_ID` environment variable (set by PreToolUse Bash hook)
+2. Fall back to parent process ID with start time: `ppid-{pid}-{start-time}`
+3. Last resort: literal string `"global"`
+
+This ensures stable session identification even when the environment variable isn't available, while maintaining isolation between concurrent Claude Code sessions.
+
+**Project Isolation:**
+Each project gets its own subdirectory identified by SHA-1 hash of the absolute project path. This prevents conflicts when working on multiple projects simultaneously.
+
+**Automatic Cleanup:**
+The SessionEnd hook automatically deletes session directories when Claude Code sessions terminate, preventing accumulation of temporary files. The cleanup process:
+1. Attempts cleanup for all possible session IDs (both env-based and PPID-based)
+2. Uses `babashka.fs/delete-tree` for recursive deletion
+3. Logs cleanup operations (attempted, deleted, errors, skipped)
+4. Never blocks SessionEnd events, even on errors
 
 ### Hook System Flow
 
@@ -81,21 +121,26 @@ clj-nrepl-eval "(+ 1 2 3)"
 6. If unfixable, restore from backup and block with error message
 7. If no errors, delete backup silently
 
-### Backup File Path Generation
+**Bash operations (PreToolUse):**
+1. Prepend `CML_CLAUDE_CODE_SESSION_ID={session_id}` to command
+2. This makes session ID available to child processes (e.g., nREPL eval)
+3. Allow command to proceed with updated input
 
-The `backup-path` function creates deterministic backup paths:
-- Uses `java.nio.file.Paths` for cross-platform path handling
-- Strips root component (works on both Unix `/foo/bar` and Windows `C:\foo\bar`)
-- Format: `{java.io.tmpdir}/claude-hook-backup-{session-id}/{relative-path}`
-- Session ID ensures backups don't collide across Claude Code sessions
+**SessionEnd operations:**
+1. Extract session_id from hook input
+2. Call `tmp/cleanup-session!` with session ID
+3. Attempt cleanup for both env-based and PPID-based session IDs
+4. Log cleanup results (attempted, deleted, errors, skipped)
+5. Always return success, never block SessionEnd
 
 ### Session Persistence
 
-The nREPL evaluation tool implements persistent sessions:
-- Session ID stored in `.nrepl-session` file
+The nREPL evaluation tool implements persistent sessions using the tmp namespace:
+- Session files stored per target (host:port combination) in `{session-root}/nrepl/target-{host}-{port}.edn`
 - Reused across invocations until nREPL server restarts or `--reset-session` used
 - Allows stateful development: vars, namespaces, and loaded libraries persist
-- Functions: `slurp-nrepl-session`, `spit-nrepl-session`, `delete-nrepl-session`
+- Per-target isolation: each nREPL server gets its own session file
+- Functions: `slurp-nrepl-target-session`, `spit-nrepl-target-session`, `delete-nrepl-target-session`
 
 ## Key Implementation Details
 
@@ -126,11 +171,70 @@ clj-nrepl-eval "(require 'my.namespace :reload)"
 (fix-delimiters "(+ 1 2")    ; => "(+ 1 2)"
 ```
 
+### Using the tmp namespace for session-scoped files
+```clojure
+(require '[clojure-mcp-light.tmp :as tmp])
+
+;; Get session root directory
+(tmp/session-root {})
+;; => "/tmp/claude-code/bruce/hostname/session-id/proj-abc123/"
+
+;; Get backup directory (creates if doesn't exist)
+(tmp/backups-dir {:session-id "my-session"})
+;; => "/tmp/claude-code/bruce/hostname/my-session/proj-abc123/backups"
+
+;; Get nREPL directory
+(tmp/nrepl-dir {})
+;; => "/tmp/claude-code/bruce/hostname/session-id/proj-abc123/nrepl"
+
+;; Create a backup path for a file
+(tmp/backup-path {} "/Users/bruce/project/src/core.clj")
+;; => "/tmp/claude-code/bruce/hostname/session-id/proj-abc123/backups/Users/bruce/project/src/core.clj"
+
+;; Get nREPL session file for a specific target
+(tmp/nrepl-target-file {} {:host "localhost" :port 7888})
+;; => "/tmp/claude-code/bruce/hostname/session-id/proj-abc123/nrepl/target-localhost-7888.edn"
+
+;; Clean up session (typically called by SessionEnd hook)
+(tmp/cleanup-session! {:session-id "my-session"})
+;; => {:attempted ["my-session" "ppid-1234-..."]
+;;     :deleted ["/tmp/claude-code/.../my-session"]
+;;     :errors []
+;;     :skipped ["/tmp/claude-code/.../ppid-1234-..."]}
+```
+
 ### Hook response format
 Hooks must return JSON matching Claude Code's hook protocol:
 - PreToolUse: `{:hookSpecificOutput {:hookEventName "PreToolUse" :permissionDecision "allow"}}`
 - PostToolUse: `{:hookSpecificOutput {:hookEventName "PostToolUse" :additionalContext "..."}}`
+- SessionEnd: `{:hookSpecificOutput {:hookEventName "SessionEnd"}}`
 - Block: `{:decision "block" :reason "..." :hookSpecificOutput {...}}`
+
+## Environment Variables
+
+### CML_CLAUDE_CODE_SESSION_ID
+- **Set by**: PreToolUse Bash hook (automatically prepended to all bash commands)
+- **Used by**: tmp namespace (`editor-scope-id` function), nREPL eval, hook system
+- **Purpose**: Provides stable session identifier for temporary file management
+- **Format**: UUID string (e.g., `"c0414e38-637f-4782-9757-29fa0c0b86e4"`)
+- **Lifecycle**: Set at session start by Claude Code, propagated to all child processes via Bash hook
+- **Fallback**: If not available, uses PPID-based identifier (`ppid-{pid}-{start-time}`)
+
+### XDG_RUNTIME_DIR
+- **Set by**: User's system (XDG Base Directory specification)
+- **Used by**: tmp namespace (`runtime-base-dir` function)
+- **Purpose**: Preferred location for runtime temporary files
+- **Format**: Absolute directory path (e.g., `"/run/user/1000"`)
+- **Fallback**: If not set, uses `java.io.tmpdir` system property
+- **Platform**: Primarily Linux; macOS and Windows typically use java.io.tmpdir fallback
+
+### NREPL_PORT
+- **Set by**: User (optional)
+- **Used by**: nREPL eval tool (`get-port` function)
+- **Purpose**: Override default nREPL port detection
+- **Format**: Integer port number (e.g., `"7888"`)
+- **Priority**: CLI flag > NREPL_PORT env var > `.nrepl-port` file
+- **Example**: `export NREPL_PORT=7888`
 
 ## Dependencies
 

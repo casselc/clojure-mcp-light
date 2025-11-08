@@ -79,6 +79,8 @@ Clojure-mcp-light provides two main tools:
 - **Auto-fixing with parinfer-rust** for intelligent delimiter repair
 - **Write operations**: Detects and fixes delimiter errors before writing files
 - **Edit operations**: Creates backup before edits, auto-fixes after, or restores from backup if unfixable
+- **Automatic cleanup**: SessionEnd hook removes temporary files when Claude Code sessions terminate
+- **Session-scoped temp files**: Organized directory structure with per-project and per-session isolation
 - **Real-time feedback**: Communicates fixes and issues back to Claude Code via hook responses
 
 ## Requirements
@@ -150,10 +152,22 @@ Clojure-mcp-light provides two main tools:
              }
            ]
          }
+       ],
+       "SessionEnd": [
+         {
+           "hooks": [
+             {
+               "type": "command",
+               "command": "clj-paren-repair-claude-hook"
+             }
+           ]
+         }
        ]
      }
    }
    ```
+
+   The SessionEnd hook automatically cleans up temporary files (backups, nREPL sessions) when Claude Code sessions terminate.
 
    See [settings_example/settings.local.json](settings_example/settings.local.json) for a complete example.
 
