@@ -169,6 +169,10 @@
               (binding [*out* *err*]
                 (print err)
                 (flush)))
+            (when value
+              (println (str "=> " value))
+              (println "*============================*")
+              (flush))
             (let [m (cond-> (update m :responses conj resp)
                       value
                       (update :vals conj value))]
@@ -242,6 +246,10 @@
                     (binding [*out* *err*]
                       (print err-str)
                       (flush)))
+                  (when-let [value (:value resp)]
+                    (println (str "=> " value))
+                    (println "*============================*")
+                    (flush))
                   ;; Collect values
                   (let [m (cond-> (update m :responses conj resp)
                             (:value resp)
@@ -289,14 +297,9 @@
   Each result is printed as => <value> with dividing lines between them.
   If timeout-ms is provided, will use timeout/interrupt handling."
   [{:keys [host port expr timeout-ms] :as opts}]
-  (let [result (if timeout-ms
-                 (eval-expr-with-timeout opts)
-                 (eval-expr opts))
-        vals (:vals result)]
-    (doseq [v vals]
-      (println (str "=> " v))
-      (println "*============================*"))
-    result))
+  (if timeout-ms
+    (eval-expr-with-timeout opts)
+    (eval-expr opts)))
 
 ;; ============================================================================
 ;; Command-line interface
