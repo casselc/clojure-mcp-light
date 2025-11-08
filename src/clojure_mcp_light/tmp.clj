@@ -141,6 +141,14 @@
   [ctx]
   (str (fs/path (nrepl-dir ctx) "session.edn")))
 
+(defn nrepl-target-file
+  "Get path to nREPL session file for a specific target (host:port combination).
+  Each host:port gets its own session file for independent session management."
+  [ctx {:keys [host port]}]
+  (let [hid (sanitize (or host "127.0.0.1"))
+        pid (str port)]
+    (str (fs/path (nrepl-dir ctx) (format "target-%s-%s.edn" hid pid)))))
+
 (defn backup-path
   "Get deterministic backup path for a given absolute file path.
 

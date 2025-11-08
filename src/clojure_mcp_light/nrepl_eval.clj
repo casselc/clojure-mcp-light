@@ -3,7 +3,8 @@
   (:require [bencode.core :as b]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
-            [clojure-mcp-light.delimiter-repair :refer [fix-delimiters]]))
+            [clojure-mcp-light.delimiter-repair :refer [fix-delimiters]]
+            [clojure-mcp-light.tmp :as tmp]))
 
 ;; ============================================================================
 ;; nREPL client implementation
@@ -52,38 +53,32 @@
 
 ;; Session file I/O utilities
 
-(defn session-file-path []
-  "Returns path to nrepl session file. Uses Claude Code session-specific
-   tmp directory if CML_CLAUDE_CODE_SESSION_ID is set, otherwise uses
-   .nrepl-session in current directory."
-  (if-let [cc-session-id (System/getenv "CML_CLAUDE_CODE_SESSION_ID")]
-    (let [tmp-dir (System/getProperty "java.io.tmpdir")
-          session-dir (str "cc-" cc-session-id)
-          parent-dir (java.io.File. tmp-dir session-dir)]
-      (.getPath (java.io.File. parent-dir "nrepl-session")))
-    ".nrepl-session"))
-
-(defn slurp-nrepl-session []
-  "Read session ID from nrepl session file. Returns nil if file doesn't exist or on error."
+(defn slurp-nrepl-session [host port]
+  "Read session ID from nrepl session file for given host and port.
+  Returns nil if file doesn't exist or on error."
   (try
-    (let [session-file (session-file-path)]
+    (let [ctx {}
+          session-file (tmp/nrepl-target-file ctx {:host host :port port})]
       (when (.exists (java.io.File. session-file))
         (str/trim (slurp session-file))))
     (catch Exception _
       nil)))
 
-(defn spit-nrepl-session [session-id]
-  "Write session ID to nrepl session file."
-  (let [session-file (session-file-path)
+(defn spit-nrepl-session [session-id host port]
+  "Write session ID to nrepl session file for given host and port."
+  (let [ctx {}
+        session-file (tmp/nrepl-target-file ctx {:host host :port port})
         file (java.io.File. session-file)]
     ;; Ensure parent directories exist
     (when-let [parent (.getParentFile file)]
       (.mkdirs parent))
     (spit session-file (str session-id "\n"))))
 
-(defn delete-nrepl-session []
-  "Delete nrepl session file if it exists."
-  (let [f (java.io.File. (session-file-path))]
+(defn delete-nrepl-session [host port]
+  "Delete nrepl session file for given host and port if it exists."
+  (let [ctx {}
+        session-file (tmp/nrepl-target-file ctx {:host host :port port})
+        f (java.io.File. session-file)]
     (when (.exists f)
       (.delete f))))
 
@@ -126,7 +121,7 @@
       (if (some #{session-id} active-sessions)
         session-id
         (do
-          (delete-nrepl-session)
+          (delete-nrepl-session host port)
           nil))
       ;; If we can't check (server down?), assume session is valid
       session-id)))
@@ -138,25 +133,26 @@
   :vals is a vector with eval results from all the top-level
   forms in the :expr. See the README for an example.
 
-  Uses persistent sessions: reuses existing session ID from .nrepl-session
+  Uses persistent sessions: reuses existing session ID from per-target session file
   or creates a new one if none exists. Session persists across invocations."
   [{:keys [host port expr]}]
-  (let [fixed-expr (or (fix-delimiters expr) expr)]
-    (with-open [s (java.net.Socket. (or host "localhost") (coerce-long port))]
+  (let [fixed-expr (or (fix-delimiters expr) expr)
+        host (or host "localhost")]
+    (with-open [s (java.net.Socket. host (coerce-long port))]
       (let [out (java.io.BufferedOutputStream. (.getOutputStream s))
             in (java.io.PushbackInputStream. (.getInputStream s))
             ;; Try to reuse existing session or create new one
-            existing-session (slurp-nrepl-session)
+            existing-session (slurp-nrepl-session host port)
             ;; Validate session on same socket
             validated-session (validate-session-on-socket out in existing-session)
             session (if validated-session
                       validated-session
                       (let [_ (when (and existing-session (not validated-session))
-                                (delete-nrepl-session))
+                                (delete-nrepl-session host port))
                             id (next-id)
                             _ (write-bencode-msg out {"op" "clone" "id" id})
                             {new-session :new-session} (read-msg (b/read-bencode in))]
-                        (spit-nrepl-session new-session)
+                        (spit-nrepl-session new-session host port)
                         new-session))
             eval-id (next-id)
             _ (write-bencode-msg out {"op" "eval" "code" fixed-expr "id" eval-id "session" session})]
@@ -206,25 +202,26 @@
   "Evaluate expression with timeout support and interrupt handling.
   If timeout-ms is exceeded, sends an interrupt to the nREPL server.
 
-  Uses persistent sessions: reuses existing session ID from .nrepl-session
+  Uses persistent sessions: reuses existing session ID from per-target session file
   or creates a new one if none exists. Session persists across invocations."
   [{:keys [host port expr timeout-ms] :or {timeout-ms 120000}}]
-  (let [fixed-expr (or (fix-delimiters expr) expr)]
-    (with-open [s (java.net.Socket. (or host "localhost") (coerce-long port))]
+  (let [fixed-expr (or (fix-delimiters expr) expr)
+        host (or host "localhost")]
+    (with-open [s (java.net.Socket. host (coerce-long port))]
       (let [out (java.io.BufferedOutputStream. (.getOutputStream s))
             in (java.io.PushbackInputStream. (.getInputStream s))
             ;; Try to reuse existing session or create new one
-            existing-session (slurp-nrepl-session)
+            existing-session (slurp-nrepl-session host port)
             ;; Validate session on same socket
             validated-session (validate-session-on-socket out in existing-session)
             session (if validated-session
                       validated-session
                       (let [_ (when (and existing-session (not validated-session))
-                                (delete-nrepl-session))
+                                (delete-nrepl-session host port))
                             clone-id (next-id)
                             _ (write-bencode-msg out {"op" "clone" "id" clone-id})
                             {new-session :new-session} (read-msg (b/read-bencode in))]
-                        (spit-nrepl-session new-session)
+                        (spit-nrepl-session new-session host port)
                         new-session))
             eval-id (next-id)
             deadline (+ (now-ms) timeout-ms)
@@ -327,9 +324,9 @@
              options-summary
              ""
              "Session Persistence:"
-             "  Sessions are persistent by default. State (vars, namespaces, loaded"
-             "  libraries) persists across invocations until the nREPL server restarts"
-             "  or --reset-session is used."
+             "  Sessions are persistent by default. Each host:port combination has its own"
+             "  session file. State (vars, namespaces, loaded libraries) persists across"
+             "  invocations until the nREPL server restarts or --reset-session is used."
              ""
              "Environment Variables:"
              "  NREPL_PORT    Default nREPL port"
@@ -378,22 +375,24 @@
       ;; Handle --reset-session flag
       (:reset-session options)
       (do
-        (delete-nrepl-session)
-        (println "Session reset: .nrepl-session file deleted")
-        ;; If code is provided, continue to evaluate it with new session
-        (when (seq arguments)
-          (let [port (get-port options)
-                expr (first arguments)]
-            (if port
-              (eval-and-print {:host (get-host options)
-                               :port port
-                               :expr expr
-                               :timeout-ms (:timeout options)})
-              (do
-                (binding [*out* *err*]
-                  (println "Error: No nREPL port found")
-                  (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
-                (System/exit 1))))))
+        (let [port (get-port options)
+              host (get-host options)]
+          (if port
+            (do
+              (delete-nrepl-session host port)
+              (println (str "Session reset for " host ":" port))
+              ;; If code is provided, continue to evaluate it with new session
+              (when (seq arguments)
+                (let [expr (first arguments)]
+                  (eval-and-print {:host host
+                                   :port port
+                                   :expr expr
+                                   :timeout-ms (:timeout options)}))))
+            (do
+              (binding [*out* *err*]
+                (println "Error: No nREPL port found for --reset-session")
+                (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
+              (System/exit 1)))))
 
       (empty? arguments)
       (do
