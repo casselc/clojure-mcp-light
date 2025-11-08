@@ -17,8 +17,8 @@
                            :read-cond :allow
                            :readers *data-readers*
                            :auto-resolve (fn [alias]
-                                          (or (get (ns-aliases *ns*) alias)
-                                              (symbol (str alias))))})
+                                           (or (get (ns-aliases *ns*) alias)
+                                               (symbol (str alias))))})
     false ; No error = no delimiter error
     (catch clojure.lang.ExceptionInfo ex
       (let [data (ex-data ex)]
@@ -26,7 +26,7 @@
              (contains? data :edamame/opened-delimiter))))
     (catch Exception _
       ;; Non-delimiter errors (e.g., unknown readers) should not be treated as delimiter errors
-      false)))
+      true)))
 
 (defn parinfer-repair
   "Attempts to repair delimiter errors using parinfer-rust.
