@@ -16,49 +16,6 @@
     (is (nil? (hook/clojure-file? "README.md")))
     (is (nil? (hook/clojure-file? "package.json")))))
 
-(deftest strip-root-test
-  (testing "strips root from Unix absolute paths"
-    (is (= "Users/bruce/workspace/project/src/foo.clj"
-           (hook/strip-root "/Users/bruce/workspace/project/src/foo.clj")))
-    (is (= "tmp/file.clj"
-           (hook/strip-root "/tmp/file.clj")))
-    (is (= "file.clj"
-           (hook/strip-root "/file.clj"))))
-
-  (testing "handles relative paths unchanged"
-    (is (= "src/relative/path.clj"
-           (hook/strip-root "src/relative/path.clj")))
-    (is (= "file.clj"
-           (hook/strip-root "file.clj"))))
-
-  (testing "handles edge cases"
-    (is (= "/"
-           (hook/strip-root "/")))
-    (is (= ""
-           (hook/strip-root ""))))
-
-  (testing "handles deeply nested paths"
-    (is (= "a/b/c/d/e/f/g/file.clj"
-           (hook/strip-root "/a/b/c/d/e/f/g/file.clj"))))
-
-  (testing "works with Windows-style paths on Windows"
-    ;; Note: These tests assume running on Unix. On Windows, the behavior would differ.
-    ;; On Unix, paths like "C:/..." are treated as relative paths.
-    ;; The key benefit is that on Windows, java.nio.file.Paths correctly handles C:\ roots.
-    (let [path "C:/Users/bruce/project/file.clj"]
-      ;; On Unix this is treated as relative, so it stays unchanged
-      (is (string? (hook/strip-root path))))))
-
-(deftest backup-path-test
-  (testing "generates deterministic backup paths"
-    (let [session-id "test-session-123"
-          file-path "/path/to/file.clj"]
-      (is (string? (hook/backup-path file-path session-id)))
-      (is (= (hook/backup-path file-path session-id)
-             (hook/backup-path file-path session-id)))
-      (is (not= (hook/backup-path file-path "different-session")
-                (hook/backup-path file-path session-id))))))
-
 (deftest process-hook-test
   (testing "allows non-Clojure files through unchanged"
     (let [hook-input {:hook_event_name "PreToolUse"

@@ -3,7 +3,8 @@
   (:require [cheshire.core :as json]
             [clojure.string :as string]
             [clojure.java.io :as io]
-            [clojure-mcp-light.delimiter-repair :refer [delimiter-error? fix-delimiters]]))
+            [clojure-mcp-light.delimiter-repair :refer [delimiter-error? fix-delimiters]]
+            [clojure-mcp-light.tmp :as tmp]))
 
 ;; ============================================================================
 ;; Logging Configuration
@@ -32,29 +33,11 @@
   (some #(string/ends-with? file-path %)
         [".clj" ".cljs" ".cljc" ".bb" ".edn"]))
 
-(defn strip-root
-  "Strip the root component from an absolute path to make it relative.
-   Works cross-platform for Unix (/foo/bar) and Windows (C:\\foo\\bar) paths."
-  [file-path]
-  (let [path (java.nio.file.Paths/get file-path (into-array String []))
-        name-count (.getNameCount path)]
-    (if (pos? name-count)
-      ;; Get all name elements (excludes root component)
-      (str (.subpath path 0 name-count))
-      file-path)))
-
-(defn backup-path
-  "Generate deterministic backup file path for a given file and session"
-  [file-path session-id]
-  (let [tmp-dir (System/getProperty "java.io.tmpdir")
-        session-dir (str "claude-hook-backup-" session-id)
-        relative-path (strip-root file-path)]
-    (.getPath (io/file tmp-dir session-dir relative-path))))
-
 (defn backup-file
   "Backup file to temp location, returns backup path"
   [file-path session-id]
-  (let [backup (backup-path file-path session-id)
+  (let [ctx {:session-id session-id}
+        backup (tmp/backup-path ctx file-path)
         backup-file (io/file backup)
         content (slurp file-path)]
     ;; Ensure parent directories exist
@@ -99,7 +82,8 @@
   and cleans up backup file."
   [file-path session-id]
   (when (clojure-file? file-path)
-    (let [backup-file (backup-path file-path session-id)]
+    (let [ctx {:session-id session-id}
+          backup-file (tmp/backup-path ctx file-path)]
       (try
         (let [backup-content (try (slurp backup-file) (catch Exception _ nil))
               file-content (slurp file-path)]
@@ -184,7 +168,8 @@
 (defmethod process-hook ["PostToolUse" "Edit"]
   [{:keys [tool_input tool_response session_id]}]
   (let [{:keys [file_path]} tool_input
-        backup (backup-path file_path session_id)]
+        ctx {:session-id session_id}
+        backup (tmp/backup-path ctx file_path)]
     (log-msg "PostEdit:" file_path)
     (if-not (and (clojure-file? file_path) tool_response)
       nil
