@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **clj-paren-repair-claude-hook** - Claude Code hook for automatic Clojure delimiter fixing
   - Detects delimiter errors using edamame parser
   - Auto-fixes with parinfer-rust
-  - PreToolUse hooks for Write/Edit operations
+  - PreToolUse hooks for Write/Edit/Bash operations
   - PostToolUse hooks for Edit operations with backup/restore
   - Cross-platform backup path handling
   - Session-specific backup isolation
@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Direct bencode protocol implementation for nREPL communication
   - Automatic delimiter repair before evaluation
   - Timeout and interrupt handling for long-running evaluations
-  - Persistent session support with `.nrepl-session` file
+  - Persistent session support with Claude Code session-id based tmp-file with `./.nrepl-session` file as fallback
   - `--reset-session` flag for session management
   - Port detection: CLI flag > NREPL_PORT env > .nrepl-port file
   - Formatted output with dividers
