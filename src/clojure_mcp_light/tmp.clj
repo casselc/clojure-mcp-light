@@ -113,7 +113,7 @@
   "Returns the unified root directory for this Claude Code session + project.
 
   Structure:
-    {runtime-dir}/claude-code/{user}/{hostname}/{session-id}/proj-{hash}/
+    {runtime-dir}/claude-code/{user}/{hostname}/{session-id}-proj-{hash}/
 
   Parameters:
   - :project-root - Optional project root path (defaults to current directory)
@@ -130,10 +130,8 @@
                   "claude-code"
                   (sanitize (user-id))
                   (sanitize (hostname))
-                  ;; one dir per editor session
-                  (sanitize sess)
-                  ;; one subdir per project root (stable across runs)
-                  (str "proj-" proj-id)))))
+                  ;; Combined session and project in single directory name
+                  (str (sanitize sess) "-proj-" proj-id)))))
 
 (defn ensure-dir!
   "Ensure directory exists, creating it if necessary.
@@ -187,8 +185,8 @@
         normalized (fs/normalize (fs/absolutize path))
         ;; Get all name elements (excludes root component)
         rel (str (.subpath ^java.nio.file.Path normalized
-                          0
-                          (.getNameCount ^java.nio.file.Path normalized)))]
+                           0
+                           (.getNameCount ^java.nio.file.Path normalized)))]
     (str (fs/path (backups-dir ctx) rel))))
 
 ;; ============================================================================
@@ -213,15 +211,12 @@
   - :skipped   - List of paths that didn't exist (skipped silently)"
   [{:keys [session-id ppid]}]
   (let [session-ids (get-possible-session-ids {:session-id session-id :ppid ppid})
-        runtime (runtime-base-dir)
-        usr (sanitize (user-id))
-        host (sanitize (hostname))
         results (atom {:attempted session-ids
                        :deleted []
                        :errors []
                        :skipped []})]
     (doseq [sess-id session-ids]
-      (let [sess-dir (str (fs/path runtime "claude-code" usr host (sanitize sess-id)))]
+      (let [sess-dir (session-root {:session-id sess-id})]
         (try
           (if (fs/exists? sess-dir)
             (do
