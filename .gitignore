@@ -16,6 +16,10 @@ hook-logs/
 
 # nREPL port file
 .nrepl-port
+.nrepl-session
+
+# MCP tasks
+.mcp-tasks*
 
 # Claude Code local config
 .claude/
