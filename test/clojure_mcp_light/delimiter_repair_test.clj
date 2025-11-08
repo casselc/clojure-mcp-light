@@ -165,12 +165,109 @@
     (is (false? (dr/delimiter-error? "(def x #inst \"2023-01-01\")")))
     (is (false? (dr/delimiter-error? "(def y #uuid \"550e8400-e29b-41d4-a716-446655440000\")"))))
 
-  (testing "does not choke on unknown/custom data readers"
-    (is (false? (dr/delimiter-error? "#my/custom {:a 1}")))
-    (is (false? (dr/delimiter-error? "#js {:x 1 :y 2}")))
-    (is (false? (dr/delimiter-error? "(def z #custom/tag \"value\")"))))
+  (testing "signals parse failure on unknown/custom data readers (to trigger parinfer)"
+    (is (true? (dr/delimiter-error? "#my/custom {:a 1}")))
+    (is (true? (dr/delimiter-error? "(def z #custom/tag \"value\")"))))
+
+  (testing "handles known ClojureScript data readers"
+    (is (false? (dr/delimiter-error? "#js {:x 1 :y 2}"))))
 
   (testing "detects delimiter errors in code with data readers"
     (is (true? (dr/delimiter-error? "(def x #inst \"2023-01-01\"")))
     (is (true? (dr/delimiter-error? "(let [t #uuid \"550e8400-e29b-41d4-a716-446655440000\"] t")))
     (is (true? (dr/delimiter-error? "(def x #my/custom {:a 1")))))
+
+(deftest clojurescript-tagged-literals-test
+  (testing "handles #js tagged literals"
+    (is (false? (dr/delimiter-error? "#js {:foo 1}")))
+    (is (false? (dr/delimiter-error? "#js [1 2 3]")))
+    (is (false? (dr/delimiter-error? "(def obj #js {:x 1 :y 2})")))
+    (is (false? (dr/delimiter-error? "(defn foo [] #js {:bar \"baz\"})"))))
+
+  (testing "handles #jsx tagged literals"
+    (is (false? (dr/delimiter-error? "#jsx [:div \"hello\"]")))
+    (is (false? (dr/delimiter-error? "(defn component [] #jsx [:div {:class \"foo\"} \"text\"])"))))
+
+  (testing "handles #queue tagged literals"
+    (is (false? (dr/delimiter-error? "#queue [1 2 3]")))
+    (is (false? (dr/delimiter-error? "(def q #queue [])"))))
+
+  (testing "handles #date tagged literals"
+    (is (false? (dr/delimiter-error? "#date \"2024-01-01\"")))
+    (is (false? (dr/delimiter-error? "(def d #date \"2024-12-31\")"))))
+
+  (testing "detects delimiter errors with tagged literals"
+    (is (true? (dr/delimiter-error? "(def obj #js {:x 1")))
+    (is (true? (dr/delimiter-error? "#js [1 2 3")))
+    (is (true? (dr/delimiter-error? "(defn foo [] #jsx [:div \"hello\"")))
+    (is (true? (dr/delimiter-error? "(def q #queue [1 2 3"))))
+
+  (testing "handles nested tagged literals"
+    (is (false? (dr/delimiter-error? "#js {:a #js [1 2 3]}")))
+    (is (false? (dr/delimiter-error? "(def data #js {:nested #js {:deep true}})")))
+    (is (true? (dr/delimiter-error? "#js {:a #js [1 2 3")))
+    (is (true? (dr/delimiter-error? "(def data #js {:nested #js {:deep true}"))))
+
+  (testing "handles multiple tagged literals in same form"
+    (is (false? (dr/delimiter-error? "(def data [#js {:x 1} #date \"2024-01-01\" #queue [1]])")))
+    (is (true? (dr/delimiter-error? "(def data [#js {:x 1} #date \"2024-01-01\" #queue [1]")))))
+
+(deftest clojurescript-features-test
+  (testing "handles namespaced keywords"
+    (is (false? (dr/delimiter-error? "::foo")))
+    (is (false? (dr/delimiter-error? "::foo/bar")))
+    (is (false? (dr/delimiter-error? "{::id 1 ::name \"test\"}")))
+    (is (false? (dr/delimiter-error? "(defn foo [x] {::result (* x 2)})"))))
+
+  (testing "detects delimiter errors with namespaced keywords"
+    (is (true? (dr/delimiter-error? "{::id 1 ::name \"test\"")))
+    (is (true? (dr/delimiter-error? "(defn foo [x] {::result (* x 2})"))))
+
+  (testing "handles ClojureScript destructuring with namespaced keywords"
+    (is (false? (dr/delimiter-error? "(let [{::keys [foo bar]} data] foo)")))
+    (is (false? (dr/delimiter-error? "(defn process [{::keys [id name]}] id)"))))
+
+  (testing "detects delimiter errors in destructuring"
+    (is (true? (dr/delimiter-error? "(let [{::keys [foo bar]} data] foo")))
+    (is (true? (dr/delimiter-error? "(defn process [{::keys [id name]} id")))))
+
+(deftest mixed-clj-cljs-features-test
+  (testing "handles mixed Clojure and ClojureScript features"
+    (is (false? (dr/delimiter-error?
+                  "(ns app.core
+                     (:require [clojure.string :as str]))
+
+                   (defn process [data]
+                     (let [obj #js {:name \"test\"}
+                           result (map #(* % 2) data)
+                           date #date \"2024-01-01\"]
+                       {::obj obj
+                        ::result result
+                        ::date date}))"))))
+
+  (testing "detects delimiter errors in mixed code"
+    (is (true? (dr/delimiter-error?
+                 "(ns app.core
+                    (:require [clojure.string :as str]))
+
+                  (defn process [data]
+                    (let [obj #js {:name \"test\"}
+                          result (map #(* % 2) data]
+                      {::obj obj
+                       ::result result"))))
+
+  (testing "handles reader conditionals with tagged literals"
+    (is (false? (dr/delimiter-error?
+                  "#?(:clj {:type :jvm}
+                      :cljs #js {:type \"browser\"})")))
+    (is (false? (dr/delimiter-error?
+                  "(def config #?(:clj  (read-string slurp \"config.edn\")
+                                  :cljs #js {:env \"dev\"}))"))))
+
+  (testing "detects delimiter errors in reader conditionals with tagged literals"
+    (is (true? (dr/delimiter-error?
+                 "#?(:clj {:type :jvm}
+                     :cljs #js {:type \"browser\")")))
+    (is (true? (dr/delimiter-error?
+                 "(def config #?(:clj (read-string slurp \"config.edn\")
+                                 :cljs #js {:env \"dev\"")))))

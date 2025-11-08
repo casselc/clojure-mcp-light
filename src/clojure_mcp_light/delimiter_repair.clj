@@ -4,6 +4,8 @@
             [clojure.java.shell :as shell]
             [cheshire.core :as json]))
 
+(def ^:dynamic *signal-on-bad-parse* true)
+
 (defn delimiter-error?
   "Returns true if the string has a delimiter error specifically.
    Checks both that it's an :edamame/error and has delimiter info.
@@ -14,19 +16,28 @@
   [s]
   (try
     (e/parse-string-all s {:all true
+                           :features #{:clj :cljs :cljr :default}
                            :read-cond :allow
-                           :readers *data-readers*
-                           :auto-resolve (fn [alias]
-                                           (or (get (ns-aliases *ns*) alias)
-                                               (symbol (str alias))))})
+                           :readers (merge *data-readers*
+                                          ;; Common ClojureScript/EDN tags - treat as no-op for delimiter checking
+                                           {'js (fn [x] x)
+                                            'jsx (fn [x] x)
+                                            'queue (fn [x] x)
+                                            'date (fn [x] x)})
+                           :auto-resolve name})
     false ; No error = no delimiter error
     (catch clojure.lang.ExceptionInfo ex
       (let [data (ex-data ex)]
         (and (= :edamame/error (:type data))
              (contains? data :edamame/opened-delimiter))))
     (catch Exception _
-      ;; Non-delimiter errors (e.g., unknown readers) should not be treated as delimiter errors
-      true)))
+      ;; Experimentally going to return true in this case to
+      ;; communication a parse failure we will run parinfer if this is
+      ;; true just in case there is a delimiter error as well in the
+      ;; file
+
+      ;; running parinfer is a benign action most of the time
+      *signal-on-bad-parse*)))
 
 (defn parinfer-repair
   "Attempts to repair delimiter errors using parinfer-rust.
