@@ -212,14 +212,12 @@
         (log-msg "  Errors during cleanup:")
         (doseq [{:keys [path error]} (:errors report)]
           (log-msg "    " path "-" error)))
-      ;; Always return success, never block SessionEnd
-      {:hookSpecificOutput
-       {:hookEventName "SessionEnd"}})
+      ;; SessionEnd hooks use simpler response format (no hookSpecificOutput)
+      nil)
     (catch Exception e
       (log-msg "  Unexpected error during cleanup:" (.getMessage e))
-      ;; Even on complete failure, return success
-      {:hookSpecificOutput
-       {:hookEventName "SessionEnd"}})))
+      ;; Even on complete failure, return nil (success)
+      nil)))
 
 (defn -main []
   (try
