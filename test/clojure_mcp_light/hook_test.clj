@@ -23,9 +23,7 @@
                       :tool_input {:file_path "test.js"
                                    :content "console.log('hello')"}}
           result (hook/process-hook hook-input)]
-      (is (map? result))
-      (is (= "allow" (get-in result [:hookSpecificOutput :permissionDecision])))
-      (is (nil? (get-in result [:hookSpecificOutput :updatedInput])))))
+      (is (nil? result))))
 
   (testing "allows valid Clojure code through unchanged"
     (let [hook-input {:hook_event_name "PreToolUse"
@@ -33,9 +31,7 @@
                       :tool_input {:file_path "test.clj"
                                    :content "(def x 1)"}}
           result (hook/process-hook hook-input)]
-      (is (map? result))
-      (is (= "allow" (get-in result [:hookSpecificOutput :permissionDecision])))
-      (is (nil? (get-in result [:hookSpecificOutput :updatedInput])))))
+      (is (nil? result))))
 
   (testing "fixes delimiter errors in Write operations"
     (let [hook-input {:hook_event_name "PreToolUse"
@@ -44,9 +40,6 @@
                                    :content "(def x 1"}}
           result (hook/process-hook hook-input)]
       (is (map? result))
-      (is (= "allow" (get-in result [:hookSpecificOutput :permissionDecision])))
-      (is (= "Auto-fixed delimiter errors"
-             (get-in result [:hookSpecificOutput :permissionDecisionReason])))
       (is (= "(def x 1)"
              (get-in result [:hookSpecificOutput :updatedInput :content])))))
 
@@ -58,5 +51,4 @@
                                    :new_string "(def x 2)"}
                       :session_id "test-session"}
           result (hook/process-hook hook-input)]
-      (is (map? result))
-      (is (= "allow" (get-in result [:hookSpecificOutput :permissionDecision]))))))
+      (is (nil? result)))))
