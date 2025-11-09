@@ -6,6 +6,7 @@
             [clojure.java.shell :refer [sh]]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure-mcp-light.delimiter-repair :refer [delimiter-error? fix-delimiters]]
+            [clojure-mcp-light.stats :as stats]
             [clojure-mcp-light.tmp :as tmp]
             [taoensso.timbre :as timbre]))
 
@@ -21,6 +22,7 @@
 
 (def cli-options
   [[nil "--cljfmt" "Enable cljfmt formatting on files after edit/write"]
+   [nil "--stats" "Enable statistics tracking for delimiter events"]
    [nil "--log-level LEVEL" "Set log level for file logging"
     :id :log-level
     :parse-fn keyword
@@ -38,6 +40,7 @@
        "\n"
        "Options:\n"
        "      --cljfmt              Enable cljfmt formatting on files after edit/write\n"
+       "      --stats               Enable statistics tracking for delimiter events\n"
        "      --log-level LEVEL     Set log level for file logging\n"
        "                            Levels: trace, debug, info, warn, error, fatal, report\n"
        "      --log-file PATH       Path to log file (default: ./.clojure-mcp-light-hooks.log)\n"
@@ -181,21 +184,25 @@
       (timbre/debug "PreWrite: clojure" file_path)
       (if (delimiter-error? content)
         (do
+          (stats/log-event! :delimiter-error "PreToolUse:Write" file_path)
           (timbre/debug "  Delimiter error detected, attempting fix")
           (if-let [fixed-content (fix-delimiters content)]
             (do
+              (stats/log-event! :delimiter-fixed "PreToolUse:Write" file_path)
               (timbre/debug "  Fix successful, allowing write with updated content")
               {:hookSpecificOutput
                {:hookEventName "PreToolUse"
                 :updatedInput {:file_path file_path
                                :content fixed-content}}})
             (do
+              (stats/log-event! :delimiter-fix-failed "PreToolUse:Write" file_path)
               (timbre/debug "  Fix failed, denying write")
               {:hookSpecificOutput
                {:hookEventName "PreToolUse"
                 :permissionDecision "deny"
                 :permissionDecisionReason "Delimiter errors found and could not be auto-fixed"}})))
         (do
+          (stats/log-event! :delimiter-ok "PreToolUse:Write" file_path)
           (timbre/debug "  No delimiter errors, allowing write")
           nil)))))
 
@@ -229,9 +236,11 @@
             file-content (slurp file_path)]
         (if (delimiter-error? file-content)
           (do
+            (stats/log-event! :delimiter-error "PostToolUse:Edit" file_path)
             (timbre/debug "  Delimiter error detected, attempting fix")
             (if-let [fixed-content (fix-delimiters file-content)]
               (try
+                (stats/log-event! :delimiter-fixed "PostToolUse:Edit" file_path)
                 (timbre/debug "  Fix successful, applying fix and deleting backup")
                 (spit file_path fixed-content)
                 (when *enable-cljfmt*
@@ -240,6 +249,7 @@
                 (finally
                   (delete-backup backup)))
               (do
+                (stats/log-event! :delimiter-fix-failed "PostToolUse:Edit" file_path)
                 (timbre/debug "  Fix failed, restoring from backup:" backup)
                 (restore-file file_path backup)
                 {:decision "block"
@@ -248,6 +258,7 @@
                  {:hookEventName "PostToolUse"
                   :additionalContext "There are delimiter errors in the file. So we restored from backup."}})))
           (try
+            (stats/log-event! :delimiter-ok "PostToolUse:Edit" file_path)
             (timbre/debug "  No delimiter errors, deleting backup")
             (when *enable-cljfmt*
               (run-cljfmt file_path))
@@ -276,22 +287,28 @@
   (let [options (handle-cli-args args)
         log-level (:log-level options)
         log-file (:log-file options)
-        enable-logging? (some? log-level)]
+        enable-logging? (some? log-level)
+        enable-stats? (:stats options)]
 
     (timbre/set-config!
-     {:min-level (or log-level :report)  ; Use :report if no level specified
-      :ns-filter (if enable-logging? "clojure-mcp-light.*" {:deny "*"})
-      :appenders {:spit (assoc
+     {:appenders {:spit (assoc
                          (timbre/spit-appender {:fname log-file})
-                         :enabled? enable-logging?)}})
+                         :enabled? enable-logging?
+                         :min-level (or log-level :report)
+                         :ns-filter (if enable-logging?
+                                      {:allow "clojure-mcp-light.*"}
+                                      {:deny "*"}))}})
 
-    ;; Set cljfmt flag from CLI options
-    (binding [*enable-cljfmt* (:cljfmt options)]
+    ;; Set cljfmt and stats flags from CLI options
+    (binding [*enable-cljfmt* (:cljfmt options)
+              stats/*enable-stats* enable-stats?]
       (try
         (let [input-json (slurp *in*)
               _ (timbre/debug "INPUT:" input-json)
               _ (when *enable-cljfmt*
                   (timbre/debug "cljfmt formatting is ENABLED"))
+              _ (when stats/*enable-stats*
+                  (timbre/debug "stats tracking is ENABLED"))
               hook-input (json/parse-string input-json true)
               response (process-hook hook-input)
               _ (timbre/debug "OUTPUT:" (json/generate-string response))]

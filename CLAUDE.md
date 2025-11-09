@@ -38,6 +38,13 @@ Test hook with --cljfmt flag (requires cljfmt installed):
 echo '{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"test.clj","content":"(def x 1)"},"tool_response":"success"}' | bb -m clojure-mcp-light.hook -- --cljfmt
 ```
 
+Test with stats tracking enabled:
+```bash
+echo '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"test.clj","content":"(def x 1)"}}' | bb -m clojure-mcp-light.hook -- --stats
+# Check stats log:
+cat ~/.clojure-mcp-light/stats.log
+```
+
 Test with logging enabled:
 ```bash
 CML_ENABLE_LOGGING=true echo '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"test.clj","content":"(def x 1)"}}' | bb -m clojure-mcp-light.hook -- --cljfmt
@@ -60,11 +67,11 @@ To test the hooks with actual Write and Edit operations in Claude Code:
   "hooks": {
     "PreToolUse": [{
       "matcher": "Write|Edit|Bash",
-      "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt"}]
+      "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt --stats"}]
     }],
     "PostToolUse": [{
       "matcher": "Edit|Write",
-      "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt"}]
+      "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt --stats"}]
     }],
     "SessionEnd": [{
       "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt"}]
@@ -72,6 +79,8 @@ To test the hooks with actual Write and Edit operations in Claude Code:
   }
 }
 ```
+
+Note: The `--stats` flag enables tracking of delimiter events to `~/.clojure-mcp-light/stats.log`
 
 Note: For production use with bbin-installed commands, replace `bb -m clojure-mcp-light.hook` with `clj-paren-repair-claude-hook`.
 
@@ -306,6 +315,47 @@ Hooks must return JSON matching Claude Code's hook protocol:
 - PostToolUse: `{:hookSpecificOutput {:hookEventName "PostToolUse" :additionalContext "..."}}`
 - SessionEnd: `{:hookSpecificOutput {:hookEventName "SessionEnd"}}`
 - Block: `{:decision "block" :reason "..." :hookSpecificOutput {...}}`
+
+### Statistics Tracking
+
+Enable delimiter event tracking with the `--stats` flag to analyze LLM-generated code quality.
+
+**Event types tracked:**
+- `:delimiter-error` - Delimiter error detected in generated code
+- `:delimiter-fixed` - Delimiter error successfully auto-fixed
+- `:delimiter-fix-failed` - Delimiter error could not be auto-fixed
+- `:delimiter-ok` - No delimiter errors (clean code)
+
+**Log location:** `~/.clojure-mcp-light/stats.log`
+
+**Format:** EDN entries, one per line:
+```clojure
+{:event-type :delimiter-error, :hook-event "PreToolUse", :timestamp "2025-11-09T14:23:45.123Z", :file-path "/Users/me/project/src/core.clj"}
+{:event-type :delimiter-fixed, :hook-event "PreToolUse", :timestamp "2025-11-09T14:23:45.234Z", :file-path "/Users/me/project/src/core.clj"}
+```
+
+**Analyzing stats:**
+```bash
+# Count events by type
+bb -e "(require '[clojure.edn :as edn]) \
+  (->> (slurp \"$HOME/.clojure-mcp-light/stats.log\") \
+       (clojure.string/split-lines) \
+       (map edn/read-string) \
+       (group-by :event-type) \
+       (map (fn [[k v]] [k (count v)])) \
+       (into {}))"
+
+# Files with most errors
+bb -e "(require '[clojure.edn :as edn]) \
+  (->> (slurp \"$HOME/.clojure-mcp-light/stats.log\") \
+       (clojure.string/split-lines) \
+       (map edn/read-string) \
+       (filter #(= :delimiter-error (:event-type %))) \
+       (group-by :file-path) \
+       (map (fn [[k v]] [k (count v)])) \
+       (sort-by second >) \
+       (take 5))"
+```
 
 ## Environment Variables
 

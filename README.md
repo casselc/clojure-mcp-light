@@ -80,6 +80,7 @@ Clojure-mcp-light provides two main tools:
 - **Write operations**: Detects and fixes delimiter errors before writing files
 - **Edit operations**: Creates backup before edits, auto-fixes after, or restores from backup if unfixable
 - **Optional code formatting**: `--cljfmt` flag enables automatic code formatting with cljfmt after write/edit operations
+- **Statistics tracking**: `--stats` flag enables event tracking for delimiter errors, fixes, and successes
 - **Automatic cleanup**: SessionEnd hook removes temporary files when Claude Code sessions terminate
 - **Session-scoped temp files**: Organized directory structure with per-project and per-session isolation
 - **Real-time feedback**: Communicates fixes and issues back to Claude Code via hook responses
@@ -305,6 +306,7 @@ clj-paren-repair-claude-hook --help
 ### Options
 
 - `--cljfmt` - Enable automatic code formatting with cljfmt after write/edit operations
+- `--stats` - Enable statistics tracking for delimiter events (logs to `~/.clojure-mcp-light/stats.log`)
 - `--log-level LEVEL` - Set log level for file logging (trace, debug, info, warn, error, fatal, report)
 - `--log-file PATH` - Path to log file (default: `./.clojure-mcp-light-hooks.log`)
 - `-h, --help` - Show help message
@@ -342,6 +344,84 @@ To enable logging when running as a Claude Code hook, add the `--log-level` flag
     }]
   }
 }
+```
+
+### Statistics Tracking
+
+The `--stats` flag enables tracking of delimiter events to help analyze LLM-generated code quality:
+
+**Enabling stats tracking:**
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Write|Edit|Bash",
+      "hooks": [{
+        "type": "command",
+        "command": "clj-paren-repair-claude-hook --stats"
+      }]
+    }],
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{
+        "type": "command",
+        "command": "clj-paren-repair-claude-hook --stats"
+      }]
+    }]
+  }
+}
+```
+
+**Event types tracked:**
+- `:delimiter-error` - Delimiter error detected in generated code
+- `:delimiter-fixed` - Delimiter error successfully auto-fixed
+- `:delimiter-fix-failed` - Delimiter error could not be auto-fixed
+- `:delimiter-ok` - No delimiter errors (clean code)
+
+**Log format:**
+
+Stats are written to `~/.clojure-mcp-light/stats.log` as EDN entries:
+
+```clojure
+{:event-type :delimiter-error, :hook-event "PreToolUse", :timestamp "2025-11-09T14:23:45.123Z", :file-path "/Users/me/project/src/core.clj"}
+{:event-type :delimiter-fixed, :hook-event "PreToolUse", :timestamp "2025-11-09T14:23:45.234Z", :file-path "/Users/me/project/src/core.clj"}
+{:event-type :delimiter-ok, :hook-event "PostToolUse", :timestamp "2025-11-09T14:25:10.456Z", :file-path "/Users/me/project/src/util.clj"}
+```
+
+**Analyzing stats:**
+
+```bash
+# Count total events
+cat ~/.clojure-mcp-light/stats.log | wc -l
+
+# Filter by event type
+bb -e "(require '[clojure.edn :as edn]) \
+  (->> (slurp \"$HOME/.clojure-mcp-light/stats.log\") \
+       (clojure.string/split-lines) \
+       (map edn/read-string) \
+       (filter #(= :delimiter-error (:event-type %))) \
+       (count))"
+
+# Group by event type
+bb -e "(require '[clojure.edn :as edn]) \
+  (->> (slurp \"$HOME/.clojure-mcp-light/stats.log\") \
+       (clojure.string/split-lines) \
+       (map edn/read-string) \
+       (group-by :event-type) \
+       (map (fn [[k v]] [k (count v)])) \
+       (into {}))"
+
+# Find files with most delimiter errors
+bb -e "(require '[clojure.edn :as edn]) \
+  (->> (slurp \"$HOME/.clojure-mcp-light/stats.log\") \
+       (clojure.string/split-lines) \
+       (map edn/read-string) \
+       (filter #(= :delimiter-error (:event-type %))) \
+       (group-by :file-path) \
+       (map (fn [[k v]] [k (count v)])) \
+       (sort-by second >) \
+       (take 5))"
 ```
 
 ## clj-nrepl-eval - nREPL Evaluation Tool
