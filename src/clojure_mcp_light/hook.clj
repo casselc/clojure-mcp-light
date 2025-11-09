@@ -274,6 +274,7 @@
     ;; Always use set-config! to replace default println appender
     (timbre/set-config!
      {:min-level (if enable-logging? :debug :report)
+      :ns-filter (if enable-logging? "clojure-mcp-light.*" {:deny "*"})
       :appenders {:spit (assoc
                          (timbre/spit-appender {:fname log-file})
                          :enabled? enable-logging?)}})
