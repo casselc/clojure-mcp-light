@@ -3,15 +3,19 @@
   (:require [cheshire.core :as json]
             [clojure.string :as string]
             [clojure.java.io :as io]
+            [clojure.java.shell :refer [sh]]
+            [clojure.tools.cli :refer [parse-opts]]
             [clojure-mcp-light.delimiter-repair :refer [delimiter-error? fix-delimiters]]
             [clojure-mcp-light.tmp :as tmp]))
 
 ;; ============================================================================
-;; Logging Configuration
+;; Configuration
 ;; ============================================================================
 
-(def ^:dynamic *enable-logging* false)
+(def ^:dynamic *enable-logging*
+  (= "true" (System/getenv "CML_ENABLE_LOGGING")))
 (def ^:dynamic *log-file* "hook-logs/clj-paren-repair-hook.log")
+(def ^:dynamic *enable-cljfmt* false)
 
 (defn log-msg
   "Log message if logging is enabled"
@@ -26,12 +30,39 @@
         nil))))
 
 ;; ============================================================================
+;; CLI Options
+;; ============================================================================
+
+(def cli-options
+  [["-c" "--cljfmt" "Enable cljfmt formatting on files after edit/write"]
+   ["-h" "--help" "Show help message"]])
+
+;; ============================================================================
 ;; Claude Code Hook Functions
 ;; ============================================================================
 
 (defn clojure-file? [file-path]
   (some #(string/ends-with? file-path %)
         [".clj" ".cljs" ".cljc" ".bb" ".edn"]))
+
+(defn run-cljfmt
+  "Run cljfmt fix on the given file path.
+  Returns true if successful, false otherwise."
+  [file-path]
+  (when *enable-cljfmt*
+    (try
+      (log-msg "Running cljfmt fix on:" file-path)
+      (let [result (sh "cljfmt" "fix" file-path)]
+        (if (zero? (:exit result))
+          (do
+            (log-msg "  cljfmt succeeded")
+            true)
+          (do
+            (log-msg "  cljfmt failed:" (:err result))
+            false)))
+      (catch Exception e
+        (log-msg "  cljfmt error:" (.getMessage e))
+        false))))
 
 (defn backup-file
   "Backup file to temp location, returns backup path"
@@ -165,6 +196,15 @@
           (log-msg "  Backup failed:" (.getMessage e))
           base-output)))))
 
+(defmethod process-hook ["PostToolUse" "Write"]
+  [{:keys [tool_input tool_response]}]
+  (let [{:keys [file_path]} tool_input]
+    (log-msg "PostWrite:" file_path)
+    (when (and (clojure-file? file_path) tool_response *enable-cljfmt*)
+      (run-cljfmt file_path)
+      ;; Return nil to not interfere with the hook chain
+      nil)))
+
 (defmethod process-hook ["PostToolUse" "Edit"]
   [{:keys [tool_input tool_response session_id]}]
   (let [{:keys [file_path]} tool_input
@@ -181,9 +221,13 @@
               (try
                 (log-msg "  Fix successful, applying fix and deleting backup")
                 (spit file_path fixed-content)
+                ;; Run cljfmt after successful delimiter fix
+                (when *enable-cljfmt*
+                  (run-cljfmt file_path))
                 {:hookSpecificOutput
                  {:hookEventName "PostToolUse"
-                  :additionalContext (str "Auto-fixed delimiter errors in " file_path)}}
+                  :additionalContext (str "Auto-fixed delimiter errors in " file_path
+                                          (when *enable-cljfmt* " and applied cljfmt formatting"))}}
                 (finally
                   (delete-backup backup)))
               (do
@@ -195,7 +239,11 @@
                                       :additionalContext "There are delimiter errors in the file. So we restored from backup."}})))
           (try
             (log-msg "  No delimiter errors, deleting backup")
-            {:reason "No delimiter errors were found in the file."
+            ;; Run cljfmt even when no delimiter errors
+            (when *enable-cljfmt*
+              (run-cljfmt file_path))
+            {:reason (str "No delimiter errors were found in the file."
+                          (when *enable-cljfmt* " Applied cljfmt formatting."))
              :hookSpecificOutput {:hookEventName "PostToolUse"}}
             (finally
               (delete-backup backup))))))))
@@ -219,20 +267,50 @@
       ;; Even on complete failure, return nil (success)
       nil)))
 
-(defn -main []
-  (try
-    (let [input-json (slurp *in*)
-          _ (log-msg "INPUT:" input-json)
-          hook-input (json/parse-string input-json true)
-          response (process-hook hook-input)
-          _ (log-msg "OUTPUT:" (json/generate-string response))]
-      (when response
-        (println (json/generate-string response)))
-      (System/exit 0))
-    (catch Exception e
-      (log-msg "Hook error:" (.getMessage e))
-      (log-msg "Stack trace:" (with-out-str (.printStackTrace e)))
-      (binding [*out* *err*]
-        (println "Hook error:" (.getMessage e))
-        (println "Stack trace:" (with-out-str (.printStackTrace e))))
-      (System/exit 2))))
+(defn -main [& args]
+  ;; Use *command-line-args* if args is empty (Babashka -m behavior)
+  (let [actual-args (if (seq args) args *command-line-args*)]
+    (log-msg "CLI args received:" actual-args)
+    (log-msg "*command-line-args*:" *command-line-args*)
+    (let [{:keys [options errors]} (parse-opts actual-args cli-options)]
+      (log-msg "Parsed options:" options)
+      (log-msg "Parse errors:" errors)
+
+    ;; Handle help
+      (when (:help options)
+        (println "clj-paren-repair-claude-hook - Claude Code hook for Clojure delimiter repair")
+        (println "")
+        (println "Usage: clj-paren-repair-claude-hook [OPTIONS]")
+        (println "")
+        (println "Options:")
+        (println "  --cljfmt    Enable cljfmt formatting on files after edit/write")
+        (println "  --help      Show this help message")
+        (System/exit 0))
+
+    ;; Handle errors
+      (when errors
+        (binding [*out* *err*]
+          (doseq [error errors]
+            (println "Error:" error)))
+        (System/exit 1))
+
+    ;; Set cljfmt flag from CLI options
+      (binding [*enable-cljfmt* (:cljfmt options)]
+        (try
+          (let [input-json (slurp *in*)
+                _ (log-msg "INPUT:" input-json)
+                _ (when *enable-cljfmt*
+                    (log-msg "cljfmt formatting is ENABLED"))
+                hook-input (json/parse-string input-json true)
+                response (process-hook hook-input)
+                _ (log-msg "OUTPUT:" (json/generate-string response))]
+            (when response
+              (println (json/generate-string response)))
+            (System/exit 0))
+          (catch Exception e
+            (log-msg "Hook error:" (.getMessage e))
+            (log-msg "Stack trace:" (with-out-str (.printStackTrace e)))
+            (binding [*out* *err*]
+              (println "Hook error:" (.getMessage e))
+              (println "Stack trace:" (with-out-str (.printStackTrace e))))
+            (System/exit 2)))))))
