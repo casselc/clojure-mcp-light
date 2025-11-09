@@ -79,6 +79,7 @@ Clojure-mcp-light provides two main tools:
 - **Auto-fixing with parinfer-rust** for intelligent delimiter repair
 - **Write operations**: Detects and fixes delimiter errors before writing files
 - **Edit operations**: Creates backup before edits, auto-fixes after, or restores from backup if unfixable
+- **Optional code formatting**: `--cljfmt` flag enables automatic code formatting with cljfmt after write/edit operations
 - **Automatic cleanup**: SessionEnd hook removes temporary files when Claude Code sessions terminate
 - **Session-scoped temp files**: Organized directory structure with per-project and per-session isolation
 - **Real-time feedback**: Communicates fixes and issues back to Claude Code via hook responses
@@ -89,6 +90,7 @@ Clojure-mcp-light provides two main tools:
 - [bbin](https://github.com/babashka/bbin) - Babashka package manager
 - [parinfer-rust](https://github.com/eraserhd/parinfer-rust) - Delimiter inference and fixing
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) - The Claude CLI tool
+- [cljfmt](https://github.com/weavejester/cljfmt) - (Optional) Code formatting tool for `--cljfmt` flag
 
 ## Installation
 
@@ -144,7 +146,7 @@ Clojure-mcp-light provides two main tools:
        ],
        "PostToolUse": [
          {
-           "matcher": "Edit",
+           "matcher": "Edit|Write",
            "hooks": [
              {
                "type": "command",
@@ -167,6 +169,50 @@ Clojure-mcp-light provides two main tools:
    }
    ```
 
+   **Optional: Enable automatic code formatting with cljfmt**
+
+   Add the `--cljfmt` flag to enable automatic code formatting after write/edit operations:
+   ```json
+   {
+     "hooks": {
+       "PreToolUse": [
+         {
+           "matcher": "Write|Edit|Bash",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "clj-paren-repair-claude-hook --cljfmt"
+             }
+           ]
+         }
+       ],
+       "PostToolUse": [
+         {
+           "matcher": "Edit|Write",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "clj-paren-repair-claude-hook --cljfmt"
+             }
+           ]
+         }
+       ],
+       "SessionEnd": [
+         {
+           "hooks": [
+             {
+               "type": "command",
+               "command": "clj-paren-repair-claude-hook --cljfmt"
+             }
+           ]
+         }
+       ]
+     }
+   }
+   ```
+
+   This requires [cljfmt](https://github.com/weavejester/cljfmt) to be installed and available on your PATH.
+
    The SessionEnd hook automatically cleans up temporary files (backups, nREPL sessions) when Claude Code sessions terminate.
 
    See [settings_example/settings.local.json](settings_example/settings.local.json) for a complete example.
@@ -178,6 +224,9 @@ Clojure-mcp-light provides two main tools:
 
    # Test hook manually
    echo '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"test.clj","content":"(def x 1)"}}' | clj-paren-repair-claude-hook
+
+   # Test hook with cljfmt flag (requires cljfmt on PATH)
+   clj-paren-repair-claude-hook --help
    ```
 
 ## Slash Commands
