@@ -391,6 +391,49 @@ Stats are written to `~/.clojure-mcp-light/stats.log` as EDN entries:
 
 **Analyzing stats:**
 
+Use the included stats summary script for a quick overview:
+
+```bash
+# Show comprehensive stats summary
+./scripts/stats-summary.bb
+
+# Example output:
+# Delimiter Event Statistics
+# ============================================================
+#
+# Total Events: 42
+#
+# Events by Type
+# ==============
+#   delimiter-ok               28  ( 66.7%)
+#   delimiter-error             8  ( 19.0%)
+#   delimiter-fixed             5  ( 11.9%)
+#   delimiter-fix-failed        1  (  2.4%)
+#
+# Events by Hook
+# ==============
+#   PreToolUse:Write           30
+#   PostToolUse:Edit           12
+#
+# Top 10 Files by Event Count
+# ===========================
+#       8  src/core.clj
+#       6  src/util.clj
+#       4  test/core_test.clj
+#
+# Success Metrics
+# ===============
+#   Clean Code (no errors):        28
+#   Errors Detected:                8
+#   Successfully Fixed:             5
+#   Failed to Fix:                  1
+#
+#   Fix Success Rate:           62.5%
+#   Clean Code Rate:            77.8%
+```
+
+Or use Babashka for custom analysis:
+
 ```bash
 # Count total events
 cat ~/.clojure-mcp-light/stats.log | wc -l

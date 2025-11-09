@@ -335,6 +335,20 @@ Enable delimiter event tracking with the `--stats` flag to analyze LLM-generated
 ```
 
 **Analyzing stats:**
+
+Use the stats summary script:
+```bash
+./scripts/stats-summary.bb
+```
+
+This provides:
+- Total event counts
+- Breakdown by event type with percentages
+- Breakdown by hook (PreToolUse:Write, PostToolUse:Edit)
+- Top 10 files by event count
+- Success metrics (fix rate, clean code rate)
+
+Or use bb for custom queries:
 ```bash
 # Count events by type
 bb -e "(require '[clojure.edn :as edn]) \
