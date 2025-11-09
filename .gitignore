@@ -1,5 +1,6 @@
 # Hook logs
 hook-logs/
+.clojure-mcp-light-hooks.log
 
 # Clojure/LSP directories
 .clj-kondo/

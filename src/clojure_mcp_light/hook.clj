@@ -21,6 +21,14 @@
 
 (def cli-options
   [["-c" "--cljfmt" "Enable cljfmt formatting on files after edit/write"]
+   [nil "--log-level LEVEL" "Set log level for file logging"
+    :id :log-level
+    :parse-fn keyword
+    :validate [#{:trace :debug :info :warn :error :fatal :report}
+               "Must be one of: trace, debug, info, warn, error, fatal, report"]]
+   [nil "--log-file PATH" "Path to log file"
+    :id :log-file
+    :default "./.clojure-mcp-light-hooks.log"]
    ["-h" "--help" "Show help message"]])
 
 (defn usage []
@@ -29,8 +37,11 @@
        "Usage: clj-paren-repair-claude-hook [OPTIONS]\n"
        "\n"
        "Options:\n"
-       "  -c, --cljfmt    Enable cljfmt formatting on files after edit/write\n"
-       "  -h, --help      Show this help message"))
+       "  -c, --cljfmt              Enable cljfmt formatting on files after edit/write\n"
+       "      --log-level LEVEL     Set log level for file logging\n"
+       "                            Levels: trace, debug, info, warn, error, fatal, report\n"
+       "      --log-file PATH       Path to log file (default: ./.clojure-mcp-light-hooks.log)\n"
+       "  -h, --help                Show this help message"))
 
 (defn error-msg [errors]
   (str "The following errors occurred while parsing command:\n\n"
@@ -41,11 +52,6 @@
   [args]
   (let [actual-args (if (seq args) args *command-line-args*)
         {:keys [options errors]} (parse-opts actual-args cli-options)]
-    (timbre/debug "CLI args received:" actual-args)
-    (timbre/debug "*command-line-args*:" *command-line-args*)
-    (timbre/debug "Parsed options:" options)
-    (timbre/debug "Parse errors:" errors)
-
     (cond
       (:help options)
       (do
@@ -267,36 +273,35 @@
       nil)))
 
 (defn -main [& args]
-  (let [enable-logging? (= "true" (System/getenv "CML_ENABLE_LOGGING"))
-        log-file "hook-logs/clj-paren-repair-hook-timbre.log"]
+  (let [options (handle-cli-args args)
+        log-level (:log-level options)
+        log-file (:log-file options)
+        enable-logging? (some? log-level)]
 
-    ;; Configure timbre logging BEFORE any logging calls
-    ;; Always use set-config! to replace default println appender
     (timbre/set-config!
-     {:min-level (if enable-logging? :debug :report)
+     {:min-level (or log-level :report)  ; Use :report if no level specified
       :ns-filter (if enable-logging? "clojure-mcp-light.*" {:deny "*"})
       :appenders {:spit (assoc
                          (timbre/spit-appender {:fname log-file})
                          :enabled? enable-logging?)}})
 
-    (let [options (handle-cli-args args)]
-      ;; Set cljfmt flag from CLI options
-      (binding [*enable-cljfmt* (:cljfmt options)]
-        (try
-          (let [input-json (slurp *in*)
-                _ (timbre/debug "INPUT:" input-json)
-                _ (when *enable-cljfmt*
-                    (timbre/debug "cljfmt formatting is ENABLED"))
-                hook-input (json/parse-string input-json true)
-                response (process-hook hook-input)
-                _ (timbre/debug "OUTPUT:" (json/generate-string response))]
-            (when response
-              (println (json/generate-string response)))
-            (System/exit 0))
-          (catch Exception e
-            (timbre/error "Hook error:" (.getMessage e))
-            (timbre/error "Stack trace:" (with-out-str (.printStackTrace e)))
-            (binding [*out* *err*]
-              (println "Hook error:" (.getMessage e))
-              (println "Stack trace:" (with-out-str (.printStackTrace e))))
-            (System/exit 2)))))))
+    ;; Set cljfmt flag from CLI options
+    (binding [*enable-cljfmt* (:cljfmt options)]
+      (try
+        (let [input-json (slurp *in*)
+              _ (timbre/debug "INPUT:" input-json)
+              _ (when *enable-cljfmt*
+                  (timbre/debug "cljfmt formatting is ENABLED"))
+              hook-input (json/parse-string input-json true)
+              response (process-hook hook-input)
+              _ (timbre/debug "OUTPUT:" (json/generate-string response))]
+          (when response
+            (println (json/generate-string response)))
+          (System/exit 0))
+        (catch Exception e
+          (timbre/error "Hook error:" (.getMessage e))
+          (timbre/error "Stack trace:" (with-out-str (.printStackTrace e)))
+          (binding [*out* *err*]
+            (println "Hook error:" (.getMessage e))
+            (println "Stack trace:" (with-out-str (.printStackTrace e))))
+          (System/exit 2))))))
