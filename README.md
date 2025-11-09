@@ -272,6 +272,78 @@ This will start an nREPL server and set up the `.nrepl-port` file automatically.
 
 This provides Claude with context about REPL evaluation, making it easier to work with your running Clojure environment.
 
+## clj-paren-repair-claude-hook - Hook Tool
+
+The hook command for automatic delimiter fixing with optional code formatting and logging.
+
+### Features
+
+- **Automatic delimiter detection** using edamame parser
+- **Auto-fixing with parinfer-rust** for intelligent delimiter repair
+- **Optional code formatting** with cljfmt
+- **Configurable file logging** for debugging hook operations
+
+### Usage
+
+```bash
+# Basic usage (silent, no logging)
+clj-paren-repair-claude-hook
+
+# With automatic code formatting
+clj-paren-repair-claude-hook --cljfmt
+
+# With debug logging to default location (./.clojure-mcp-light-hooks.log)
+clj-paren-repair-claude-hook --log-level debug --cljfmt
+
+# With trace logging to custom file
+clj-paren-repair-claude-hook --log-level trace --log-file /tmp/hook-debug.log
+
+# Show help
+clj-paren-repair-claude-hook --help
+```
+
+### Options
+
+- `-c, --cljfmt` - Enable automatic code formatting with cljfmt after write/edit operations
+- `--log-level LEVEL` - Set log level for file logging (trace, debug, info, warn, error, fatal, report)
+- `--log-file PATH` - Path to log file (default: `./.clojure-mcp-light-hooks.log`)
+- `-h, --help` - Show help message
+
+### Logging
+
+By default, the hook runs silently with no logging. To enable logging for debugging:
+
+```bash
+# Debug level logging (recommended for troubleshooting)
+clj-paren-repair-claude-hook --log-level debug
+
+# Trace level logging (maximum verbosity)
+clj-paren-repair-claude-hook --log-level trace
+
+# Custom log file location
+clj-paren-repair-claude-hook --log-level debug --log-file ~/hook-debug.log
+```
+
+Log files include timestamps, namespaces, line numbers, and structured output for easy debugging.
+
+**Enabling logging in hooks:**
+
+To enable logging when running as a Claude Code hook, add the `--log-level` flag to your `.claude/settings.local.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Write|Edit|Bash",
+      "hooks": [{
+        "type": "command",
+        "command": "clj-paren-repair-claude-hook --log-level debug --cljfmt"
+      }]
+    }]
+  }
+}
+```
+
 ## clj-nrepl-eval - nREPL Evaluation Tool
 
 The main command-line tool for evaluating Clojure code via nREPL with automatic delimiter repair.
