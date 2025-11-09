@@ -304,7 +304,7 @@ clj-paren-repair-claude-hook --help
 
 ### Options
 
-- `-c, --cljfmt` - Enable automatic code formatting with cljfmt after write/edit operations
+- `--cljfmt` - Enable automatic code formatting with cljfmt after write/edit operations
 - `--log-level LEVEL` - Set log level for file logging (trace, debug, info, warn, error, fatal, report)
 - `--log-file PATH` - Path to log file (default: `./.clojure-mcp-light-hooks.log`)
 - `-h, --help` - Show help message

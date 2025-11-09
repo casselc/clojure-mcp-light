@@ -20,7 +20,7 @@
 ;; ============================================================================
 
 (def cli-options
-  [["-c" "--cljfmt" "Enable cljfmt formatting on files after edit/write"]
+  [[nil "--cljfmt" "Enable cljfmt formatting on files after edit/write"]
    [nil "--log-level LEVEL" "Set log level for file logging"
     :id :log-level
     :parse-fn keyword
@@ -37,7 +37,7 @@
        "Usage: clj-paren-repair-claude-hook [OPTIONS]\n"
        "\n"
        "Options:\n"
-       "  -c, --cljfmt              Enable cljfmt formatting on files after edit/write\n"
+       "      --cljfmt              Enable cljfmt formatting on files after edit/write\n"
        "      --log-level LEVEL     Set log level for file logging\n"
        "                            Levels: trace, debug, info, warn, error, fatal, report\n"
        "      --log-file PATH       Path to log file (default: ./.clojure-mcp-light-hooks.log)\n"
