@@ -2,8 +2,83 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.0.3-alpha] - 2025-11-09
+
+This version represents a major improvement in robustness and developer experience.
+
+### Summary
+
+* **Fixed hook response protocol** - Hooks now return `nil` for normal operations instead of explicit `permissionDecision: allow` responses. The previous approach was bypassing Claude Code's normal permission dialogs, causing the UI to not properly prompt users for confirmation.
+
+* **Robust nREPL session persistence** - Session management now properly handles multiple concurrent Claude Code sessions running in the same directory using session-scoped temporary files with fallback strategies (env var → PPID-based → global).
+
+* **Automatic cleanup via SessionEnd hook** - Session persistence requires temporary file storage that must be cleaned up. The new SessionEnd hook automatically removes session directories when Claude Code sessions terminate, preventing accumulation of stale temporary files.
+
+* **cljfmt support** - The `--cljfmt` CLI option enables automatic code formatting. Claude frequently indents code incorrectly by one space, and cljfmt quickly fixes these issues. Well-formatted code is essential for parinfer's indent mode to work correctly, making this option highly recommended.
+
+* **Debugging support** - The `--log-level` and `--log-file` CLI options provide configurable logging. Without proper logging, developing and troubleshooting clojure-mcp-light is extremely difficult.
+
+* **Statistics tracking** - The `--stats` flag enables global tracking of delimiter events. The `scripts/stats-summary.bb` tool provides comprehensive analysis of fix rates, error patterns, and code quality metrics.
+
+### Added
+- **Statistics tracking system** - Track delimiter events to analyze LLM code quality
+  - `--stats` CLI flag enables event logging to `~/.clojure-mcp-light/stats.log`
+  - Event types: `:delimiter-error`, `:delimiter-fixed`, `:delimiter-fix-failed`, `:delimiter-ok`
+  - Stats include timestamps, hook events, and file paths
+  - `scripts/stats-summary.bb` - Comprehensive analysis tool for stats logs
+  - Low-level parse error tracking and false positive filtering
+  - Cljfmt efficiency tracking (already-formatted vs needed-formatting vs check-errors)
+
+- **Unified tmp namespace** - Session-scoped temporary file management
+  - Centralized temporary file paths with automatic cleanup
+  - Editor session detection with fallback strategies (env var → PPID-based → global)
+  - Deterministic paths based on user, hostname, session ID, and project SHA
+  - Per-project isolation prevents conflicts across multiple projects
+  - Functions: `session-root`, `editor-scope-id`, `cleanup-session!`, `get-possible-session-ids`
+
+- **SessionEnd cleanup hook** - Automatic temp file cleanup
+  - Removes session directories when Claude Code sessions terminate
+  - Attempts cleanup for all possible session IDs (env-based and PPID-based)
+  - Recursive deletion with detailed logging (attempted, deleted, errors, skipped)
+  - Never blocks SessionEnd events, even on errors
+
+- **Enhanced CLI options**
+  - `--log-level LEVEL` - Explicit log level control (trace, debug, info, warn, error, fatal, report)
+  - `--log-file PATH` - Custom log file path (default: `./.clojure-mcp-light-hooks.log`)
+  - `--cljfmt` - Enable automatic code formatting with cljfmt after write/edit operations
+
+- **Comprehensive testing documentation** in CLAUDE.md
+  - Manual hook testing instructions
+  - Claude Code integration testing guide
+  - Troubleshooting section for common issues
+
+### Changed
+- **Logging system** - Replaced custom logging with Timbre
+  - Structured logging with timestamps, namespaces, and line numbers
+  - Configurable appenders and log levels
+  - Conditional ns-filter for targeted logging
+  - Disabled by default to avoid breaking hook protocol
+
+- **Hook system improvements**
+  - Refactored hook response format to minimize unnecessary output
+  - Updated hook tests to match new response format
+  - Extracted PPID session ID logic into dedicated function
+  - Flattened tmp directory structure to single session-project level
+
+- **CLI handling** - Refactored into dedicated `handle-cli-args` function
+  - Cleaner separation of concerns
+  - Better error handling and help messages
+  - Uses `tools.cli` for argument parsing
+
+- **File organization** - Migrated to unified tmp namespace
+  - `hook.clj` now uses tmp namespace for backups
+  - `nrepl_eval.clj` now uses tmp namespace for per-target sessions
+  - Consistent session-scoped file management across all components
+
+### Removed
+- **-c short flag** for `--cljfmt` option (prevented conflicts with potential future flags)
+
+[0.0.3-alpha]: https://github.com/bhauman/clojure-mcp-light/releases/tag/v0.0.3-alpha
 
 ## [0.0.2-alpha] - 2025-11-08
 
