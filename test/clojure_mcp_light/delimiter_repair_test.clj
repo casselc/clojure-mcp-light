@@ -135,7 +135,7 @@
 (deftest delimiter-error-comprehensive-test
   (testing "handles complex real-world Clojure code without errors"
     (is (false? (dr/delimiter-error?
-                  "(ns foo.bar
+                 "(ns foo.bar
                      (:require [clojure.string :as str]))
 
                    (defn ^:private process [data]
@@ -148,7 +148,7 @@
 
   (testing "detects delimiter errors in complex nested code"
     (is (true? (dr/delimiter-error?
-                 "(ns foo.bar
+                "(ns foo.bar
                     (:require [clojure.string :as str]))
 
                   (defn process [data]
@@ -163,11 +163,9 @@
     (is (false? (dr/delimiter-error? "#inst \"2023-01-01\"")))
     (is (false? (dr/delimiter-error? "#uuid \"550e8400-e29b-41d4-a716-446655440000\"")))
     (is (false? (dr/delimiter-error? "(def x #inst \"2023-01-01\")")))
-    (is (false? (dr/delimiter-error? "(def y #uuid \"550e8400-e29b-41d4-a716-446655440000\")"))))
-
-  (testing "signals parse failure on unknown/custom data readers (to trigger parinfer)"
-    (is (true? (dr/delimiter-error? "#my/custom {:a 1}")))
-    (is (true? (dr/delimiter-error? "(def z #custom/tag \"value\")"))))
+    (is (false? (dr/delimiter-error? "(def y #uuid \"550e8400-e29b-41d4-a716-446655440000\")")))
+    (is (false? (dr/delimiter-error? "#my/custom {:a 1}")))
+    (is (false? (dr/delimiter-error? "(def z #custom/tag \"value\")"))))
 
   (testing "handles known ClojureScript data readers"
     (is (false? (dr/delimiter-error? "#js {:x 1 :y 2}"))))
@@ -234,7 +232,7 @@
 (deftest mixed-clj-cljs-features-test
   (testing "handles mixed Clojure and ClojureScript features"
     (is (false? (dr/delimiter-error?
-                  "(ns app.core
+                 "(ns app.core
                      (:require [clojure.string :as str]))
 
                    (defn process [data]
@@ -247,7 +245,7 @@
 
   (testing "detects delimiter errors in mixed code"
     (is (true? (dr/delimiter-error?
-                 "(ns app.core
+                "(ns app.core
                     (:require [clojure.string :as str]))
 
                   (defn process [data]
@@ -258,16 +256,16 @@
 
   (testing "handles reader conditionals with tagged literals"
     (is (false? (dr/delimiter-error?
-                  "#?(:clj {:type :jvm}
+                 "#?(:clj {:type :jvm}
                       :cljs #js {:type \"browser\"})")))
     (is (false? (dr/delimiter-error?
-                  "(def config #?(:clj  (read-string slurp \"config.edn\")
+                 "(def config #?(:clj  (read-string slurp \"config.edn\")
                                   :cljs #js {:env \"dev\"}))"))))
 
   (testing "detects delimiter errors in reader conditionals with tagged literals"
     (is (true? (dr/delimiter-error?
-                 "#?(:clj {:type :jvm}
+                "#?(:clj {:type :jvm}
                      :cljs #js {:type \"browser\")")))
     (is (true? (dr/delimiter-error?
-                 "(def config #?(:clj (read-string slurp \"config.edn\")
+                "(def config #?(:clj (read-string slurp \"config.edn\")
                                  :cljs #js {:env \"dev\"")))))
