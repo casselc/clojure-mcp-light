@@ -127,9 +127,11 @@
         (let [result (sh "cljfmt" "fix" file-path)]
           (if (zero? (:exit result))
             (do
+              (stats/log-stats! :cljfmt-fix-succeeded {:file-path file-path})
               (timbre/debug "  cljfmt succeeded")
               true)
             (do
+              (stats/log-stats! :cljfmt-fix-failed {:file-path file-path})
               (timbre/debug "  cljfmt failed:" (:err result))
               false)))
         (catch Exception e

@@ -82,10 +82,13 @@
 
           ;; Calculate cljfmt metrics
           cljfmt-by-type (count-by :event-type cljfmt-events)
-          cljfmt-runs (get cljfmt-by-type :cljfmt-run 0)
           cljfmt-already-formatted (get cljfmt-by-type :cljfmt-already-formatted 0)
-          cljfmt-needed-formatting (get cljfmt-by-type :cljfmt-needed-formatting 0)
-          cljfmt-errors (get cljfmt-by-type :cljfmt-check-error 0)]
+          cljfmt-needed-formatting (get cljfmt-by-type :cljfmt-run 0)
+          cljfmt-fix-succeeded (get cljfmt-by-type :cljfmt-fix-succeeded 0)
+          cljfmt-fix-failed (get cljfmt-by-type :cljfmt-fix-failed 0)
+          cljfmt-check-errors (get cljfmt-by-type :cljfmt-check-error 0)
+          cljfmt-total-checked (+ cljfmt-already-formatted cljfmt-needed-formatting cljfmt-check-errors)
+          cljfmt-total-fix-attempts (+ cljfmt-fix-succeeded cljfmt-fix-failed)]
 
       (println)
       (println "clojure-mcp-light Utility Validation")
@@ -122,21 +125,31 @@
 
       ;; Cljfmt Metrics
       (print-section "Cljfmt Metrics")
-      (println (format "  Total Runs:                 %5d" cljfmt-runs))
+      (println (format "  Total Files Checked:        %5d" cljfmt-total-checked))
       (println (format "  Already Formatted:          %5d  (%5.1f%% of total)"
                        cljfmt-already-formatted
-                       (if (pos? cljfmt-runs)
-                         (* 100.0 (/ cljfmt-already-formatted cljfmt-runs))
+                       (if (pos? cljfmt-total-checked)
+                         (* 100.0 (/ cljfmt-already-formatted cljfmt-total-checked))
                          0.0)))
       (println (format "  Needed Formatting:          %5d  (%5.1f%% of total)"
                        cljfmt-needed-formatting
-                       (if (pos? cljfmt-runs)
-                         (* 100.0 (/ cljfmt-needed-formatting cljfmt-runs))
+                       (if (pos? cljfmt-total-checked)
+                         (* 100.0 (/ cljfmt-needed-formatting cljfmt-total-checked))
                          0.0)))
       (println (format "  Check Errors:               %5d  (%5.1f%% of total)"
-                       cljfmt-errors
-                       (if (pos? cljfmt-runs)
-                         (* 100.0 (/ cljfmt-errors cljfmt-runs))
+                       cljfmt-check-errors
+                       (if (pos? cljfmt-total-checked)
+                         (* 100.0 (/ cljfmt-check-errors cljfmt-total-checked))
+                         0.0)))
+      (println (format "  Fix Success Rate:           %5d  (%5.1f%% of fix attempts)"
+                       cljfmt-fix-succeeded
+                       (if (pos? cljfmt-total-fix-attempts)
+                         (* 100.0 (/ cljfmt-fix-succeeded cljfmt-total-fix-attempts))
+                         0.0)))
+      (println (format "  Fix Failures:               %5d  (%5.1f%% of fix attempts)"
+                       cljfmt-fix-failed
+                       (if (pos? cljfmt-total-fix-attempts)
+                         (* 100.0 (/ cljfmt-fix-failed cljfmt-total-fix-attempts))
                          0.0)))
 
       ;; Category Breakdown
