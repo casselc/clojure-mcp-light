@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.4-alpha] - 2025-11-09
+
+### Summary
+
+This release simplifies session identification and improves the stats tracking system.
+
+### Changed
+- **Session identification simplified** - Removed Bash hook and CML_CLAUDE_CODE_SESSION_ID functionality
+  - Now relies exclusively on GPID (grandparent process ID) approach
+  - Removed PreToolUse Bash hook that prepended session ID to commands
+  - Removed all CML_CLAUDE_CODE_SESSION_ID environment variable references
+  - Updated tmp.clj to use only GPID for session identification
+  - Deleted scripts/echo-session-id.sh utility
+  - Updated configuration examples to remove Bash from matchers
+  - GPID provides stable session identification using Claude Code process hierarchy
+
+- **Improved GPID-based session identification**
+  - Use grandparent PID instead of parent PID for stable session IDs
+  - GPID remains constant across multiple bb invocations within same Claude session
+  - Fixes nREPL session persistence by ensuring consistent session file paths
+  - Benefits: persistent namespaces, variables, and REPL state across evaluations
+
+- **Backup path refactoring**
+  - Replace path-preserving backups with hash-based structure
+  - Use SHA-256 for stronger collision resistance
+  - Implement 2-level directory sharding (h0h1/h2h3/) to prevent filesystem issues
+  - Format: {backups-dir}/{shard1}/{shard2}/{hash}--{sanitized-filename}
+  - Simplify session-root path structure to clojure-mcp-light/{session}-proj-{hash}
+
+- **Stats script improvements**
+  - Fixed misleading "Hook-level events" terminology
+  - Now correctly shows "Delimiter events" (events with :hook-event field)
+  - Added separate "Cljfmt events" count
+  - More accurate breakdown of event types
+
+- **Documentation updates**
+  - Updated CLAUDE.md with current log file path (.clojure-mcp-light-hooks.log)
+  - Note that log file is configurable via --log-file flag
+
+[0.0.4-alpha]: https://github.com/bhauman/clojure-mcp-light/releases/tag/v0.0.4-alpha
+
 ## [0.0.3-alpha] - 2025-11-09
 
 This version represents a major improvement in robustness and developer experience.
