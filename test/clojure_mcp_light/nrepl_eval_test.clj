@@ -1,7 +1,8 @@
 (ns clojure-mcp-light.nrepl-eval-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure-mcp-light.nrepl-eval :as ne]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.string]))
 
 (deftest bytes->str-test
   (testing "converts bytes to string"

@@ -1,7 +1,6 @@
 (ns clojure-mcp-light.stats
   "Statistics tracking for delimiter repair events"
   (:require [clojure.java.io :as io]
-            [clojure.string :as string]
             [taoensso.timbre :as timbre])
   (:import [java.time Instant]))
 

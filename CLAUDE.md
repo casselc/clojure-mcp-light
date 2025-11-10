@@ -57,6 +57,11 @@ bb -m clojure-mcp-light.hook -- --help
 
 Note: After installing with bbin, you can use `clj-paren-repair-claude-hook` instead of `bb -m clojure-mcp-light.hook`.
 
+Linting:
+```bash
+clj-kondo --lint src --lint test
+```
+
 ### Testing with Claude Code Integration
 
 To test the hooks with actual Write and Edit operations in Claude Code:
@@ -67,14 +72,14 @@ To test the hooks with actual Write and Edit operations in Claude Code:
   "hooks": {
     "PreToolUse": [{
       "matcher": "Write|Edit",
-      "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt --stats"}]
+      "hooks": [{"type": "command", "command": "bb -m clojure-mcp-light.hook -- --cljfmt --stats --log-level debug"}]
     }],
     "PostToolUse": [{
       "matcher": "Edit|Write",
-      "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt --stats"}]
+      "hooks": [{"type": "command", "command": "bb -m clojure-mcp-light.hook -- --cljfmt --stats --log-level debug"}]
     }],
     "SessionEnd": [{
-      "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt"}]
+      "hooks": [{"type": "command", "command": "bb -m clojure-mcp-light.hook -- --cljfmt --log-level debug"}]
     }]
   }
 }
@@ -185,12 +190,9 @@ The `tmp` namespace provides a unified system for managing temporary files acros
 ```
 $XDG_RUNTIME_DIR (or java.io.tmpdir)
 └── claude-code/
-    └── {user-id}/
-        └── {hostname}/
-            └── {session-id}/           # or ppid-{pid}-{start-time}
-                └── proj-{sha1(path)}/  # per-project isolation
-                    ├── backups/        # Edit operation backups
-                    └── nrepl/          # nREPL session files
+    └── gpid-{gpid-id}-proj-{sha1(path)}/  # per-project isolation
+        ├── backups/        # Edit operation backups
+        └── nrepl/          # nREPL session files
 ```
 
 **Session ID Strategy:**

@@ -53,9 +53,10 @@
 
 ;; Session file I/O utilities
 
-(defn slurp-nrepl-session [host port]
+(defn slurp-nrepl-session
   "Read session ID from nrepl session file for given host and port.
   Returns nil if file doesn't exist or on error."
+  [host port]
   (try
     (let [ctx {}
           session-file (tmp/nrepl-target-file ctx {:host host :port port})]
@@ -64,8 +65,9 @@
     (catch Exception _
       nil)))
 
-(defn spit-nrepl-session [session-id host port]
+(defn spit-nrepl-session
   "Write session ID to nrepl session file for given host and port."
+  [session-id host port]
   (let [ctx {}
         session-file (tmp/nrepl-target-file ctx {:host host :port port})
         file (java.io.File. session-file)]
@@ -74,8 +76,9 @@
       (.mkdirs parent))
     (spit session-file (str session-id "\n"))))
 
-(defn delete-nrepl-session [host port]
+(defn delete-nrepl-session
   "Delete nrepl session file for given host and port if it exists."
+  [host port]
   (let [ctx {}
         session-file (tmp/nrepl-target-file ctx {:host host :port port})
         f (java.io.File. session-file)]
@@ -293,7 +296,7 @@
   "Evaluate expression and print results with formatting.
   Each result is printed as => <value> with dividing lines between them.
   If timeout-ms is provided, will use timeout/interrupt handling."
-  [{:keys [host port expr timeout-ms] :as opts}]
+  [{:keys [timeout-ms] :as opts}]
   (if timeout-ms
     (eval-expr-with-timeout opts)
     (eval-expr opts)))
@@ -374,25 +377,24 @@
 
       ;; Handle --reset-session flag
       (:reset-session options)
-      (do
-        (let [port (get-port options)
-              host (get-host options)]
-          (if port
-            (do
-              (delete-nrepl-session host port)
-              (println (str "Session reset for " host ":" port))
-              ;; If code is provided, continue to evaluate it with new session
-              (when (seq arguments)
-                (let [expr (first arguments)]
-                  (eval-and-print {:host host
-                                   :port port
-                                   :expr expr
-                                   :timeout-ms (:timeout options)}))))
-            (do
-              (binding [*out* *err*]
-                (println "Error: No nREPL port found for --reset-session")
-                (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
-              (System/exit 1)))))
+      (let [port (get-port options)
+            host (get-host options)]
+        (if port
+          (do
+            (delete-nrepl-session host port)
+            (println (str "Session reset for " host ":" port))
+            ;; If code is provided, continue to evaluate it with new session
+            (when (seq arguments)
+              (let [expr (first arguments)]
+                (eval-and-print {:host host
+                                 :port port
+                                 :expr expr
+                                 :timeout-ms (:timeout options)}))))
+          (do
+            (binding [*out* *err*]
+              (println "Error: No nREPL port found for --reset-session")
+              (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
+            (System/exit 1))))
 
       (empty? arguments)
       (do
