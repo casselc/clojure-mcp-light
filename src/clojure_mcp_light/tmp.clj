@@ -50,18 +50,23 @@
       fs/normalize
       str))
 
-(defn ppid-session-id
-  "Get session identifier based on parent process ID.
+(defn gpid-session-id
+  "Get session identifier based on grandparent process ID.
 
-  Returns a string in the format 'ppid-{pid}-{startInstant}' or 'ppid-{pid}'
-  if start time is unavailable. Returns nil if parent process handle cannot
-  be obtained or on any exception."
+  Returns a string in the format 'gpid-{pid}-{startInstant}' or 'gpid-{pid}'
+  if start time is unavailable. Returns nil if grandparent process handle cannot
+  be obtained or on any exception.
+
+  Uses grandparent (parent of parent) to get a stable process ID that persists
+  across multiple command invocations in Claude Code sessions."
   []
   (try
-    (when-let [ph (some-> (java.lang.ProcessHandle/current) .parent (.orElse nil))]
-      (let [pid (.pid ph)
-            start (some-> (.info ph) .startInstant (.orElse nil) str)]
-        (str "ppid-" pid (when start (str "-" start)))))
+    (when-let [gph (some-> (java.lang.ProcessHandle/current)
+                           .parent (.orElse nil)
+                           .parent (.orElse nil))]
+      (let [pid (.pid gph)
+            start (some-> (.info gph) .startInstant (.orElse nil) str)]
+        (str "gpid-" pid (when start (str "-" start)))))
     (catch Exception _
       nil)))
 
@@ -70,14 +75,14 @@
 
   Tries in order:
   1. CML_CLAUDE_CODE_SESSION_ID environment variable
-  2. Parent process ID with start time (ppid-{pid}-{startInstant})
+  2. Grandparent process ID with start time (gpid-{pid}-{startInstant})
   3. Literal string 'global' as last resort
 
-  The PPID approach provides a stable identifier for the Claude Code session
+  The GPID approach provides a stable identifier for the Claude Code session
   lifetime even when the session ID environment variable is not set."
   []
   (or (System/getenv "CML_CLAUDE_CODE_SESSION_ID")
-      (ppid-session-id)
+      (gpid-session-id)
       "global"))
 
 (defn get-possible-session-ids
@@ -85,19 +90,19 @@
 
   Parameters:
   - :session-id - Optional explicit session ID (e.g., from hook input)
-  - :ppid       - Optional parent process ID for fallback calculation
+  - :gpid       - Optional grandparent process ID for fallback calculation
 
   Returns a vector of unique session IDs that might have been used during
   this session. This ensures cleanup works regardless of which ID was actually
   used during file operations.
 
-  Example: [{:session-id \"abc123\"}] might return [\"abc123\" \"ppid-1234-...\"]"
-  [{:keys [session-id ppid]}]
+  Example: [{:session-id \"abc123\"}] might return [\"abc123\" \"gpid-1234-...\"]"
+  [{:keys [session-id gpid]}]
   (let [env-id (or session-id (System/getenv "CML_CLAUDE_CODE_SESSION_ID"))
-        ppid-id (if ppid
-                  (str "ppid-" ppid)
-                  (ppid-session-id))]
-    (->> [env-id ppid-id]
+        gpid-id (if gpid
+                  (str "gpid-" gpid)
+                  (gpid-session-id))]
+    (->> [env-id gpid-id]
          (filter some?)
          distinct
          vec)))
@@ -193,20 +198,20 @@
   "Clean up temporary files for this Claude Code session.
 
   Attempts to delete session directories for all possible session IDs
-  (both env-based and PPID-based) to ensure cleanup works regardless
+  (both env-based and GPID-based) to ensure cleanup works regardless
   of which ID was actually used during the session.
 
   Parameters:
   - :session-id - Optional explicit session ID (e.g., from SessionEnd hook)
-  - :ppid       - Optional parent process ID
+  - :gpid       - Optional grandparent process ID
 
   Returns a cleanup report map:
   - :attempted - List of session IDs for which cleanup was attempted
   - :deleted   - List of successfully deleted directory paths
   - :errors    - List of {:path path :error error-msg} maps for failures
   - :skipped   - List of paths that didn't exist (skipped silently)"
-  [{:keys [session-id ppid]}]
-  (let [session-ids (get-possible-session-ids {:session-id session-id :ppid ppid})
+  [{:keys [session-id gpid]}]
+  (let [session-ids (get-possible-session-ids {:session-id session-id :gpid gpid})
         results (atom {:attempted session-ids
                        :deleted []
                        :errors []
