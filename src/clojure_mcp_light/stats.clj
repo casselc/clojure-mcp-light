@@ -1,6 +1,7 @@
 (ns clojure-mcp-light.stats
   "Statistics tracking for delimiter repair events"
-  (:require [clojure.java.io :as io]
+  (:require [babashka.fs :as fs]
+            [clojure.java.io :as io]
             [taoensso.timbre :as timbre])
   (:import [java.time Instant]))
 
@@ -8,10 +9,24 @@
 ;; Configuration
 ;; ============================================================================
 
+(defn normalize-stats-path
+  "Normalize a stats file path, handling tilde expansion and relative paths.
+
+  Parameters:
+  - path: string path (can be relative, absolute, or use ~)
+
+  Returns: normalized absolute path as string"
+  [path]
+  (-> path
+      fs/expand-home
+      fs/absolutize
+      fs/normalize
+      str))
+
 (def ^:dynamic *enable-stats* false)
 
-(def stats-file-path
-  "Global stats log file location"
+(def ^:dynamic *stats-file-path*
+  "Stats log file location - can be overridden via binding"
   (let [home (System/getProperty "user.home")]
     (str home "/.clojure-mcp-light/stats.log")))
 
@@ -49,13 +64,13 @@
   [event-type data]
   (when *enable-stats*
     (try
-      (ensure-parent-dir stats-file-path)
+      (ensure-parent-dir *stats-file-path*)
       (let [entry (merge {:event-type event-type
                           :timestamp (timestamp-iso8601)}
                          data)
             stats-config {:min-level :trace
                           :appenders {:stats (assoc
-                                              (timbre/spit-appender {:fname stats-file-path})
+                                              (timbre/spit-appender {:fname *stats-file-path*})
                                               :enabled? true
                                               :output-fn edn-output-fn)}}]
         (binding [timbre/*config* stats-config]

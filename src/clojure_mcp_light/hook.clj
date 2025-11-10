@@ -23,7 +23,8 @@
 
 (def cli-options
   [[nil "--cljfmt" "Enable cljfmt formatting on files after edit/write"]
-   [nil "--stats" "Enable statistics tracking for delimiter events"]
+   [nil "--stats [PATH]" "Enable statistics tracking for delimiter events (default: ~/.clojure-mcp-light/stats.log)"
+    :id :stats]
    [nil "--log-level LEVEL" "Set log level for file logging"
     :id :log-level
     :parse-fn keyword
@@ -41,7 +42,8 @@
        "\n"
        "Options:\n"
        "      --cljfmt              Enable cljfmt formatting on files after edit/write\n"
-       "      --stats               Enable statistics tracking for delimiter events\n"
+       "      --stats [PATH]        Enable statistics tracking for delimiter events\n"
+       "                            (default: ~/.clojure-mcp-light/stats.log)\n"
        "      --log-level LEVEL     Set log level for file logging\n"
        "                            Levels: trace, debug, info, warn, error, fatal, report\n"
        "      --log-file PATH       Path to log file (default: ./.clojure-mcp-light-hooks.log)\n"
@@ -309,7 +311,12 @@
         log-level (:log-level options)
         log-file (:log-file options)
         enable-logging? (some? log-level)
-        enable-stats? (:stats options)]
+        stats-opt (:stats options)
+        enable-stats? (some? stats-opt)
+        stats-path (if (string? stats-opt)
+                     (stats/normalize-stats-path stats-opt)
+                     (let [home (System/getProperty "user.home")]
+                       (str home "/.clojure-mcp-light/stats.log")))]
 
     (timbre/set-config!
      {:appenders {:spit (assoc
@@ -322,14 +329,15 @@
 
     ;; Set cljfmt and stats flags from CLI options
     (binding [*enable-cljfmt* (:cljfmt options)
-              stats/*enable-stats* enable-stats?]
+              stats/*enable-stats* enable-stats?
+              stats/*stats-file-path* stats-path]
       (try
         (let [input-json (slurp *in*)
               _ (timbre/debug "INPUT:" input-json)
               _ (when *enable-cljfmt*
                   (timbre/debug "cljfmt formatting is ENABLED"))
               _ (when stats/*enable-stats*
-                  (timbre/debug "stats tracking is ENABLED"))
+                  (timbre/debug "stats tracking is ENABLED, writing to:" stats/*stats-file-path*))
               hook-input (json/parse-string input-json true)
               response (process-hook hook-input)
               _ (timbre/debug "OUTPUT:" (json/generate-string response))]
