@@ -62,19 +62,32 @@
     (is (= "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
            (tmp/sha1 "hello")))))
 
-(deftest user-id-test
-  (testing "returns a string"
-    (is (string? (tmp/user-id))))
+(deftest sha256-test
+  (testing "produces consistent hashes"
+    (let [input "test-string"
+          hash1 (tmp/sha256 input)
+          hash2 (tmp/sha256 input)]
+      (is (= hash1 hash2))
+      (is (= 64 (count hash1)))))
 
-  (testing "returns non-empty value"
-    (is (pos? (count (tmp/user-id))))))
+  (testing "produces different hashes for different inputs"
+    (let [hash1 (tmp/sha256 "input1")
+          hash2 (tmp/sha256 "input2")]
+      (is (not= hash1 hash2))))
 
-(deftest hostname-test
-  (testing "returns a string"
-    (is (string? (tmp/hostname))))
+  (testing "produces valid hex strings"
+    (let [hash (tmp/sha256 "test")]
+      (is (re-matches #"[0-9a-f]{64}" hash))))
 
-  (testing "returns non-empty value"
-    (is (pos? (count (tmp/hostname))))))
+  (testing "handles empty strings"
+    (let [hash (tmp/sha256 "")]
+      (is (string? hash))
+      (is (= 64 (count hash)))))
+
+  (testing "produces known hash for test input"
+    ;; SHA-256 of "hello" is known
+    (is (= "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+           (tmp/sha256 "hello")))))
 
 (deftest runtime-base-dir-test
   (testing "returns a valid directory path"
@@ -121,8 +134,7 @@
   (testing "generates session root with default context"
     (let [root (tmp/session-root {})]
       (is (string? root))
-      (is (str/includes? root "claude-code"))
-      (is (str/includes? root (tmp/sanitize (tmp/user-id))))
+      (is (str/includes? root "clojure-mcp-light"))
       (is (str/includes? root "proj-"))))
 
   (testing "uses custom session-id when provided"
@@ -259,7 +271,7 @@
       (is (str/starts-with? file-path nrepl-dir)))))
 
 (deftest backup-path-test
-  (testing "generates backup path for Unix-style absolute path"
+  (testing "generates hash-based backup path"
     (let [ctx {:session-id "test-backup-path"
                :project-root "/test/project"}
           source-file "/Users/bruce/test.clj"
@@ -268,13 +280,28 @@
       (is (str/includes? backup "backups"))
       (is (str/ends-with? backup "test.clj"))))
 
-  (testing "preserves relative path structure"
+  (testing "uses 2-level sharding structure"
     (let [ctx {:session-id "test-backup-structure"
                :project-root "/test/project"}
-          source-file "/Users/bruce/src/foo/bar.clj"
-          backup (tmp/backup-path ctx source-file)]
-      (is (str/includes? backup "foo"))
-      (is (str/includes? backup "bar.clj"))))
+          source-file "/Users/bruce/test.clj"
+          backup (tmp/backup-path ctx source-file)
+          hash (tmp/sha256 (str (fs/absolutize (fs/normalize source-file))))
+          shard1 (subs hash 0 2)
+          shard2 (subs hash 2 4)]
+      ;; Should contain shard directories
+      (is (str/includes? backup (str "/" shard1 "/" shard2 "/")))
+      ;; Should contain hash prefix in filename
+      (is (str/includes? backup (str shard1 shard2)))))
+
+  (testing "filename format is hash--basename"
+    (let [ctx {:session-id "test-backup-format"
+               :project-root "/test/project"}
+          source-file "/Users/bruce/my-file.clj"
+          backup (tmp/backup-path ctx source-file)
+          filename (str (fs/file-name backup))]
+      ;; Format: {hash}--{sanitized-basename}
+      (is (str/includes? filename "--"))
+      (is (str/ends-with? filename "--my-file.clj"))))
 
   (testing "produces consistent paths for same input"
     (let [ctx {:session-id "test-backup-consistent"
@@ -291,13 +318,26 @@
           backup2 (tmp/backup-path ctx "/Users/bruce/file2.clj")]
       (is (not= backup1 backup2))))
 
-  (testing "handles paths with special characters"
+  (testing "sanitizes special characters in filename"
     (let [ctx {:session-id "test-backup-special"
                :project-root "/test/project"}
-          source-file "/Users/bruce/my-file.test.clj"
+          source-file "/Users/bruce/my file with spaces.clj"
           backup (tmp/backup-path ctx source-file)]
       (is (string? backup))
-      (is (str/includes? backup "my-file.test.clj")))))
+      ;; Spaces should be sanitized to underscores
+      (is (str/ends-with? backup "my_file_with_spaces.clj"))
+      (is (not (str/includes? backup " ")))))
+
+  (testing "handles deep paths correctly"
+    (let [ctx {:session-id "test-backup-deep"
+               :project-root "/test/project"}
+          source-file "/a/b/c/d/e/f/deep-file.clj"
+          backup (tmp/backup-path ctx source-file)
+          filename (str (fs/file-name backup))]
+      ;; Should only have basename in filename, not full path
+      (is (str/ends-with? backup "deep-file.clj"))
+      ;; Should not contain intermediate directories a, b, c, d, e, f
+      (is (not (str/includes? filename "/"))))))
 
 ;; ============================================================================
 ;; Integration Tests

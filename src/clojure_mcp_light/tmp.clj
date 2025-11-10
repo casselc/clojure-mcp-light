@@ -11,19 +11,6 @@
 ;; Config & Helpers
 ;; ============================================================================
 
-(defn user-id
-  "Get current username from system properties."
-  []
-  (or (System/getProperty "user.name") "unknown"))
-
-(defn hostname
-  "Get hostname of the current machine."
-  []
-  (try
-    (.. java.net.InetAddress getLocalHost getHostName)
-    (catch Exception _
-      "unknown-host")))
-
 (defn runtime-base-dir
   "Get base directory for runtime temporary files.
   Prefers XDG_RUNTIME_DIR if present, otherwise falls back to java.io.tmpdir."
@@ -46,6 +33,13 @@
   (let [md (java.security.MessageDigest/getInstance "SHA-1")]
     (.update md (.getBytes s))
     (format "%040x" (BigInteger. 1 (.digest md)))))
+
+(defn sha256
+  "Compute SHA-256 hex digest of a string."
+  ^String [^String s]
+  (let [md (java.security.MessageDigest/getInstance "SHA-256")]
+    (.update md (.getBytes s))
+    (format "%064x" (BigInteger. 1 (.digest md)))))
 
 (defn project-root-path
   "Get the project root path (current working directory).
@@ -130,10 +124,7 @@
         proj    (or project-root (project-root-path))
         proj-id (sha1 proj)]
     (str (fs/path runtime
-                  "claude-code"
-                  (sanitize (user-id))
-                  (sanitize (hostname))
-                  ;; Combined session and project in single directory name
+                  "clojure-mcp-light"
                   (str (sanitize sess) "-proj-" proj-id)))))
 
 (defn ensure-dir!
@@ -179,18 +170,20 @@
     (str (fs/path (nrepl-dir ctx) (format "target-%s-%s.edn" hid pid)))))
 
 (defn backup-path
-  "Get deterministic backup path for a given absolute file path.
+  "Deterministic backup path: {backups-dir}/{h0}{h1}/{h2}{h3}/{hash}--{filename}
 
-  The backup preserves the relative path structure under the backups directory,
-  stripping only the root component to make it portable across filesystems."
+  - Hash is SHA-256 of the absolute, normalized file path.
+  - Keeps the original filename for readability.
+  - Uses a 2-level shard to avoid directory overload."
   [ctx ^String absolute-file]
-  (let [path (fs/path absolute-file)
-        normalized (fs/normalize (fs/absolutize path))
-        ;; Get all name elements (excludes root component)
-        rel (str (.subpath ^java.nio.file.Path normalized
-                           0
-                           (.getNameCount ^java.nio.file.Path normalized)))]
-    (str (fs/path (backups-dir ctx) rel))))
+  (let [abs-path (-> absolute-file fs/absolutize fs/normalize)
+        abs    (str abs-path)
+        h      (sha256 abs)
+        fname  (or (fs/file-name abs-path) "unnamed")
+        shard1 (subs h 0 2)
+        shard2 (subs h 2 4)
+        out    (str h "--" (sanitize fname))]
+    (str (fs/path (backups-dir ctx) shard1 shard2 out))))
 
 ;; ============================================================================
 ;; Session Cleanup
