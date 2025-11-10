@@ -74,15 +74,13 @@
   "Get editor session scope identifier with fallback strategy.
 
   Tries in order:
-  1. CML_CLAUDE_CODE_SESSION_ID environment variable
-  2. Grandparent process ID with start time (gpid-{pid}-{startInstant})
-  3. Literal string 'global' as last resort
+  1. Grandparent process ID with start time (gpid-{pid}-{startInstant})
+  2. Literal string 'global' as last resort
 
   The GPID approach provides a stable identifier for the Claude Code session
-  lifetime even when the session ID environment variable is not set."
+  lifetime."
   []
-  (or (System/getenv "CML_CLAUDE_CODE_SESSION_ID")
-      (gpid-session-id)
+  (or (gpid-session-id)
       "global"))
 
 (defn get-possible-session-ids
@@ -98,11 +96,10 @@
 
   Example: [{:session-id \"abc123\"}] might return [\"abc123\" \"gpid-1234-...\"]"
   [{:keys [session-id gpid]}]
-  (let [env-id (or session-id (System/getenv "CML_CLAUDE_CODE_SESSION_ID"))
-        gpid-id (if gpid
+  (let [gpid-id (if gpid
                   (str "gpid-" gpid)
                   (gpid-session-id))]
-    (->> [env-id gpid-id]
+    (->> [session-id gpid-id]
          (filter some?)
          distinct
          vec)))

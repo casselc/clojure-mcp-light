@@ -111,9 +111,8 @@
 
   (testing "returns valid session identifier"
     (let [result (tmp/editor-scope-id)]
-      ;; Should be either env var, ppid-based, or "global"
-      (is (or (= result (System/getenv "CML_CLAUDE_CODE_SESSION_ID"))
-              (str/starts-with? result "ppid-")
+      ;; Should be either gpid-based or "global"
+      (is (or (str/starts-with? result "gpid-")
               (= result "global"))))))
 
 (deftest project-root-path-test

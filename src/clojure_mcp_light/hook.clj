@@ -192,19 +192,6 @@
 
 (defmethod process-hook :default [_] nil)
 
-;; the only way I could see to supply the CC session id to the clj-nrepl-eval cmd
-;; not convinced we need this, so I'm still trying this out
-(defmethod process-hook ["PreToolUse" "Bash"]
-  [{:keys [tool_input session_id]}]
-  (let [command (:command tool_input)
-        updated-command (str "CML_CLAUDE_CODE_SESSION_ID=" session_id " " command)]
-    (timbre/debug "[PreToolUse Bash] Prepending session ID:" session_id)
-    (timbre/debug "[PreToolUse Bash] Original command:" command)
-    (timbre/debug "[PreToolUse Bash] Updated command:" updated-command)
-    {:hookSpecificOutput
-     {:hookEventName "PreToolUse"
-      :updatedInput {:command updated-command}}}))
-
 (defmethod process-hook ["PreToolUse" "Write"]
   [{:keys [tool_input]}]
   (let [{:keys [file_path content]} tool_input]

@@ -66,7 +66,7 @@ To test the hooks with actual Write and Edit operations in Claude Code:
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "Write|Edit|Bash",
+      "matcher": "Write|Edit",
       "hooks": [{"type": "command", "command": "CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt --stats"}]
     }],
     "PostToolUse": [{
@@ -194,11 +194,10 @@ $XDG_RUNTIME_DIR (or java.io.tmpdir)
 ```
 
 **Session ID Strategy:**
-1. Prefer `CML_CLAUDE_CODE_SESSION_ID` environment variable (set by PreToolUse Bash hook)
-2. Fall back to parent process ID with start time: `ppid-{pid}-{start-time}`
-3. Last resort: literal string `"global"`
+1. Use grandparent process ID with start time: `gpid-{pid}-{start-time}`
+2. Last resort: literal string `"global"`
 
-This ensures stable session identification even when the environment variable isn't available, while maintaining isolation between concurrent Claude Code sessions.
+This ensures stable session identification using the Claude Code process hierarchy, while maintaining isolation between concurrent Claude Code sessions.
 
 **Project Isolation:**
 Each project gets its own subdirectory identified by SHA-1 hash of the absolute project path. This prevents conflicts when working on multiple projects simultaneously.
@@ -226,11 +225,6 @@ The SessionEnd hook automatically deletes session directories when Claude Code s
 5. If fixable, apply fix and delete backup
 6. If unfixable, restore from backup and block with error message
 7. If no errors, delete backup silently
-
-**Bash operations (PreToolUse):**
-1. Prepend `CML_CLAUDE_CODE_SESSION_ID={session_id}` to command
-2. This makes session ID available to child processes (e.g., nREPL eval)
-3. Allow command to proceed with updated input
 
 **SessionEnd operations:**
 1. Extract session_id from hook input
@@ -381,14 +375,6 @@ bb -e "(require '[clojure.edn :as edn]) \
 - **Log file**: `.clojure-mcp-light-hooks.log` (relative to project root, configurable via --log-file)
 - **Usage**: `CML_ENABLE_LOGGING=true bb -m clojure-mcp-light.hook -- --cljfmt`
 - **Logs include**: CLI args, parsed options, hook events, cljfmt execution, errors
-
-### CML_CLAUDE_CODE_SESSION_ID
-- **Set by**: PreToolUse Bash hook (automatically prepended to all bash commands)
-- **Used by**: tmp namespace (`editor-scope-id` function), nREPL eval, hook system
-- **Purpose**: Provides stable session identifier for temporary file management
-- **Format**: UUID string (e.g., `"c0414e38-637f-4782-9757-29fa0c0b86e4"`)
-- **Lifecycle**: Set at session start by Claude Code, propagated to all child processes via Bash hook
-- **Fallback**: If not available, uses PPID-based identifier (`ppid-{pid}-{start-time}`)
 
 ### XDG_RUNTIME_DIR
 - **Set by**: User's system (XDG Base Directory specification)

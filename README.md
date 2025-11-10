@@ -136,7 +136,7 @@ Clojure-mcp-light provides two main tools:
      "hooks": {
        "PreToolUse": [
          {
-           "matcher": "Write|Edit|Bash",
+           "matcher": "Write|Edit",
            "hooks": [
              {
                "type": "command",
@@ -178,7 +178,7 @@ Clojure-mcp-light provides two main tools:
      "hooks": {
        "PreToolUse": [
          {
-           "matcher": "Write|Edit|Bash",
+           "matcher": "Write|Edit",
            "hooks": [
              {
                "type": "command",
@@ -336,7 +336,7 @@ To enable logging when running as a Claude Code hook, add the `--log-level` flag
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "Write|Edit|Bash",
+      "matcher": "Write|Edit",
       "hooks": [{
         "type": "command",
         "command": "clj-paren-repair-claude-hook --log-level debug --cljfmt"
@@ -356,7 +356,7 @@ The `--stats` flag enables tracking of delimiter events to help analyze LLM-gene
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "Write|Edit|Bash",
+      "matcher": "Write|Edit",
       "hooks": [{
         "type": "command",
         "command": "clj-paren-repair-claude-hook --stats"
