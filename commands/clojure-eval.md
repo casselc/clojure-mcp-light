@@ -20,47 +20,66 @@ Whenever you require a namespace always use the `:reload` key.
 
 The following evaluates Clojure code via an nREPL connection.
 
-**With bbin installation:**
+**Discover available connections:**
 ```bash
-clj-nrepl-eval "<clojure-code>"
+clj-nrepl-eval --connected-ports
 ```
 
-**Without bbin (manual installation):**
+**Evaluate code (requires --port):**
 ```bash
-clj-nrepl-eval "<clojure-code>"
+clj-nrepl-eval --port <port> "<clojure-code>"
 ```
 
 ## Options
 
-- `-p, --port PORT` - Specify nREPL port (if not using .nrepl-port or NREPL_PORT env)
-- `-H, --host HOST` - Specify nREPL host (default: 127.0.0.1)
-- `-t, --timeout MILLISECONDS` - Set timeout in milliseconds (default: 120000)
+- `-p, --port PORT` - nREPL port (required)
+- `-H, --host HOST` - nREPL host (default: 127.0.0.1)
+- `-t, --timeout MILLISECONDS` - Timeout in milliseconds (default: 120000)
+- `-r, --reset-session` - Reset the persistent nREPL session
+- `-c, --connected-ports` - List all active nREPL connections
 - `-h, --help` - Show help message
+
+## Workflow
+
+**1. Discover available connections:**
+```bash
+clj-nrepl-eval --connected-ports
+# Active nREPL connections:
+#   127.0.0.1:7888 (session: abc123...)
+#
+# Total: 1 active connection
+```
+
+**2. Evaluate code:**
+```bash
+clj-nrepl-eval -p 7888 "(+ 1 2 3)"
+```
 
 ## Examples
 
-**Basic evaluation (auto-detects port):**
+**Basic evaluation:**
 ```bash
-clj-nrepl-eval "(+ 1 2 3)"
-```
-
-**With specific port:**
-```bash
-clj-nrepl-eval --port 7888 "(println \"Hello\")"
+clj-nrepl-eval -p 7888 "(+ 1 2 3)"
 ```
 
 **With timeout:**
 ```bash
-clj-nrepl-eval --timeout 5000 "(Thread/sleep 10000)"
+clj-nrepl-eval -p 7888 --timeout 5000 "(Thread/sleep 10000)"
 ```
 
 **Multiple expressions:**
 ```bash
-clj-nrepl-eval "(def x 10) (* x 2) (+ x 5)"
+clj-nrepl-eval -p 7888 "(def x 10) (* x 2) (+ x 5)"
+```
+
+**Reset session:**
+```bash
+clj-nrepl-eval -p 7888 --reset-session
 ```
 
 ## Features
 
-- **Auto-detects port** from .nrepl-port file or NREPL_PORT environment variable
+- **Connection discovery** - Use --connected-ports to see available servers
 - **Automatic delimiter repair** - fixes missing/mismatched parens before evaluation
 - **Timeout handling** - interrupts long-running evaluations
+- **Persistent sessions** - State persists across invocations

@@ -187,6 +187,47 @@
         out    (str h "--" (sanitize fname))]
     (str (fs/path (backups-dir ctx) shard1 shard2 out))))
 
+(defn list-nrepl-session-files
+  "List all stored nREPL session files for the current context.
+
+  Scans the nREPL directory for target-*.edn files and parses their
+  host, port, and session ID.
+
+  Returns a vector of maps with keys:
+  - :host       - Host string (e.g., \"127.0.0.1\")
+  - :port       - Port number (long)
+  - :file-path  - Absolute path to session file
+  - :session-id - Session ID string (or nil if file is empty/invalid)
+
+  Returns empty vector if:
+  - nREPL directory doesn't exist
+  - No session files found
+  - Permission errors reading directory"
+  [ctx]
+  (try
+    (let [nrepl-path (nrepl-dir ctx)]
+      (if (fs/exists? nrepl-path)
+        (->> (fs/list-dir nrepl-path)
+             (filter #(re-matches #"target-.*\.edn" (str (fs/file-name %))))
+             (keep (fn [file-path]
+                     (when-let [[_ host port] (re-matches #"target-(.+)-(\d+)\.edn"
+                                                          (str (fs/file-name file-path)))]
+                       (try
+                         (let [session-id (when (fs/exists? file-path)
+                                            (some-> (slurp (str file-path))
+                                                    str/trim
+                                                    not-empty))]
+                           {:host (str/replace host #"_" ".")
+                            :port (parse-long port)
+                            :file-path (str file-path)
+                            :session-id session-id})
+                         (catch Exception _
+                           nil)))))
+             vec)
+        []))
+    (catch Exception _
+      [])))
+
 ;; ============================================================================
 ;; Session Cleanup
 ;; ============================================================================

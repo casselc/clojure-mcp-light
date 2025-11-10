@@ -129,6 +129,63 @@
       ;; If we can't check (server down?), assume session is valid
       session-id)))
 
+(defn validate-stored-connection
+  "Validate a stored nREPL connection by checking if server is reachable
+   and session is still active.
+
+   Parameters:
+   - :host       - Host string
+   - :port       - Port number
+   - :session-id - Session ID to validate
+   - :file-path  - Path to session file (not used, kept for future compatibility)
+
+   Returns map with :status key:
+   - {:status :active :host ... :port ... :session-id ...} if connection is valid
+   - {:status :invalid :host ... :port ... :reason ...} if connection failed
+
+   Does not clean up stale session files to preserve session persistence across
+   server restarts. Use --reset-session to explicitly clean up sessions."
+  [{:keys [host port session-id file-path]}]
+  (try
+    (if-let [active-sessions (get-active-sessions host port)]
+      (if (some #{session-id} active-sessions)
+        {:status :active
+         :host host
+         :port port
+         :session-id session-id}
+        {:status :invalid
+         :host host
+         :port port
+         :reason "Session expired"})
+      {:status :invalid
+       :host host
+       :port port
+       :reason "Server unreachable"})
+    (catch Exception e
+      {:status :invalid
+       :host host
+       :port port
+       :reason (.getMessage e)})))
+
+(defn list-connected-ports
+  "List all active nREPL connections from stored session files.
+
+   Returns a vector of maps with:
+   - :host       - Host string
+   - :port       - Port number
+   - :session-id - Active session ID
+   - :status     - :active
+
+   Only includes connections that are currently active and reachable.
+   Automatically cleans up stale session files."
+  []
+  (let [ctx {}
+        session-files (tmp/list-nrepl-session-files ctx)]
+    (->> session-files
+         (map validate-stored-connection)
+         (filter #(= :active (:status %)))
+         vec)))
+
 (defn eval-expr
   "Execute :expr in nREPL on given :host (defaults to localhost)
   and :port. Returns map with :vals. Prints any output to *out*.
@@ -184,10 +241,6 @@
 (defn now-ms [] (System/currentTimeMillis))
 
 (defn ->uuid [] (str (java.util.UUID/randomUUID)))
-
-(defn slurp-nrepl-port []
-  (when (.exists (java.io.File. ".nrepl-port"))
-    (parse-long (str/trim (slurp ".nrepl-port")))))
 
 ;; Timeout and interrupt handling
 
@@ -306,22 +359,24 @@
 ;; ============================================================================
 
 (def cli-options
-  [["-p" "--port PORT" "nREPL port (default: from .nrepl-port or NREPL_PORT env)"
+  [["-p" "--port PORT" "nREPL port (required)"
     :parse-fn parse-long
     :validate [#(> % 0) "Must be a positive number"]]
-   ["-H" "--host HOST" "nREPL host (default: 127.0.0.1 or NREPL_HOST env)"]
+   ["-H" "--host HOST" "nREPL host (default: 127.0.0.1)"]
    ["-t" "--timeout MILLISECONDS" "Timeout in milliseconds (default: 120000)"
     :parse-fn parse-long
     :validate [#(> % 0) "Must be a positive number"]]
    ["-r" "--reset-session" "Reset the persistent nREPL session"]
+   ["-c" "--connected-ports" "List all active nREPL connections"]
    ["-h" "--help" "Show this help message"]])
 
 (defn usage [options-summary]
   (str/join \newline
             ["clj-nrepl-eval - Evaluate Clojure code via nREPL"
              ""
-             "Usage: clj-nrepl-eval [OPTIONS] CODE"
-             "       clj-nrepl-eval --reset-session"
+             "Usage: clj-nrepl-eval --port PORT CODE"
+             "       clj-nrepl-eval --port PORT --reset-session [CODE]"
+             "       clj-nrepl-eval --connected-ports"
              ""
              "Options:"
              options-summary
@@ -331,35 +386,33 @@
              "  session file. State (vars, namespaces, loaded libraries) persists across"
              "  invocations until the nREPL server restarts or --reset-session is used."
              ""
-             "Environment Variables:"
-             "  NREPL_PORT    Default nREPL port"
-             "  NREPL_HOST    Default nREPL host"
+             "Workflow:"
+             "  1. Use --connected-ports to discover available nREPL servers"
+             "  2. Use --port to connect to a specific server"
              ""
              "Examples:"
-             "  clj-nrepl-eval \"(+ 1 2 3)\""
+             "  # Discover available connections"
+             "  clj-nrepl-eval --connected-ports"
+             ""
+             "  # Evaluate code"
+             "  clj-nrepl-eval -p 7888 \"(+ 1 2 3)\""
              "  clj-nrepl-eval --port 7888 \"(println \\\"Hello\\\")\""
-             "  clj-nrepl-eval --timeout 5000 \"(Thread/sleep 10000)\""
-             "  clj-nrepl-eval --reset-session"
-             "  clj-nrepl-eval --reset-session \"(def x 1)\""]))
+             ""
+             "  # With timeout"
+             "  clj-nrepl-eval -p 7888 --timeout 5000 \"(Thread/sleep 10000)\""
+             ""
+             "  # Reset session"
+             "  clj-nrepl-eval -p 7888 --reset-session"
+             "  clj-nrepl-eval -p 7888 --reset-session \"(def x 1)\""]))
 
 (defn error-msg [errors]
   (str "Error parsing command line:\n\n"
        (str/join \newline errors)))
 
-(defn get-port
-  "Get port from options, environment, or .nrepl-port file.
-  Returns nil if no port can be found."
-  [opts]
-  (or (:port opts)
-      (some-> (System/getenv "NREPL_PORT") parse-long)
-      (slurp-nrepl-port)))
-
 (defn get-host
-  "Get host from options or environment"
+  "Get host from options, defaulting to 127.0.0.1"
   [opts]
-  (or (:host opts)
-      (System/getenv "NREPL_HOST")
-      "127.0.0.1"))
+  (or (:host opts) "127.0.0.1"))
 
 (defn -main [& args]
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
@@ -375,26 +428,38 @@
           (println (usage summary)))
         (System/exit 1))
 
+      ;; Handle --connected-ports flag
+      (:connected-ports options)
+      (let [connections (list-connected-ports)]
+        (if (empty? connections)
+          (println "No active nREPL connections found.")
+          (do
+            (println "Active nREPL connections:")
+            (doseq [{:keys [host port session-id]} connections]
+              (println (format "  %s:%d (session: %s)" host port session-id)))
+            (println)
+            (println (format "Total: %d active connection%s"
+                             (count connections)
+                             (if (= 1 (count connections)) "" "s"))))))
+
       ;; Handle --reset-session flag
       (:reset-session options)
-      (let [port (get-port options)
-            host (get-host options)]
-        (if port
-          (do
-            (delete-nrepl-session host port)
-            (println (str "Session reset for " host ":" port))
-            ;; If code is provided, continue to evaluate it with new session
-            (when (seq arguments)
-              (let [expr (first arguments)]
-                (eval-and-print {:host host
-                                 :port port
-                                 :expr expr
-                                 :timeout-ms (:timeout options)}))))
-          (do
-            (binding [*out* *err*]
-              (println "Error: No nREPL port found for --reset-session")
-              (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
-            (System/exit 1))))
+      (if-let [port (:port options)]
+        (let [host (get-host options)]
+          (delete-nrepl-session host port)
+          (println (str "Session reset for " host ":" port))
+          ;; If code is provided, continue to evaluate it with new session
+          (when (seq arguments)
+            (let [expr (first arguments)]
+              (eval-and-print {:host host
+                               :port port
+                               :expr expr
+                               :timeout-ms (:timeout options)}))))
+        (do
+          (binding [*out* *err*]
+            (println "Error: --port is required for --reset-session")
+            (println "Use --connected-ports to see available connections"))
+          (System/exit 1)))
 
       (empty? arguments)
       (do
@@ -405,15 +470,14 @@
         (System/exit 1))
 
       :else
-      (let [port (get-port options)
-            expr (first arguments)]
-        (if port
+      (if-let [port (:port options)]
+        (let [expr (first arguments)]
           (eval-and-print {:host (get-host options)
                            :port port
                            :expr expr
-                           :timeout-ms (:timeout options)})
-          (do
-            (binding [*out* *err*]
-              (println "Error: No nREPL port found")
-              (println "Provide port via --port, NREPL_PORT env var, or .nrepl-port file"))
-            (System/exit 1)))))))
+                           :timeout-ms (:timeout options)}))
+        (do
+          (binding [*out* *err*]
+            (println "Error: --port is required")
+            (println "Use --connected-ports to see available connections"))
+          (System/exit 1))))))

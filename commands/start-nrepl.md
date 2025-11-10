@@ -23,14 +23,14 @@ If neither file exists or nREPL is not configured:
 - Inform the user that nREPL is not configured
 - Ask if they want you to add the nREPL configuration to `deps.edn`
 
-## Step 3: Check for Existing nREPL Server
+## Step 3: Check for Existing nREPL Servers
 
-Before starting a new server:
+Before starting a new server, check for existing connections:
 
-1. Check if `.nrepl-port` file exists
-2. If it exists, try to connect to verify if server is still running
-3. If a server is already running, inform the user and display the port
-4. Ask if they want to stop the existing server and start a new one
+1. Run `clj-nrepl-eval --connected-ports` to see active servers
+2. If servers are found, inform the user and display the ports
+3. Ask if they want to start an additional server or use an existing one
+4. Optionally check if `.nrepl-port` file exists as a fallback indicator
 
 ## Step 4: Start nREPL Server
 
@@ -55,23 +55,32 @@ Use the Bash tool with `run_in_background: true` to start the server.
 3. Parse the port number from output like: "nREPL server started on port 54321..."
 4. Extract the numeric port value
 
-## Step 6: Create .nrepl-port File
+## Step 6: Create .nrepl-port File (Optional)
 
-Write the extracted port number to `.nrepl-port` file using:
+Optionally write the port to `.nrepl-port` for compatibility with other tools:
 ```bash
 echo "PORT_NUMBER" > .nrepl-port
 ```
 
 Replace PORT_NUMBER with the actual port extracted from the output.
 
-## Step 7: Verify and Report
+Note: This is optional as `clj-nrepl-eval` requires explicit `--port` flag.
 
-1. Confirm the `.nrepl-port` file was created successfully
-2. Display to the user:
-   - The port number the server is running on
-   - The connection URL (e.g., `nrepl://localhost:PORT`)
-   - The background process ID
-   - Note that `clj-nrepl-eval` can now auto-detect the port
+## Step 7: Test Connection
+
+Verify the connection by running a test evaluation:
+```bash
+clj-nrepl-eval -p PORT "(+ 1 2 3)"
+```
+
+## Step 8: Report to User
+
+Display to the user:
+- The port number the server is running on
+- The connection URL (e.g., `nrepl://localhost:PORT`)
+- The background process ID
+- The command to use: `clj-nrepl-eval -p PORT "code"`
+- Mention that they can use `--connected-ports` to see this connection later
 
 ## Example Output to User
 
@@ -81,9 +90,12 @@ nREPL server started successfully!
 Port: 54321
 URL: nrepl://localhost:54321
 Background process: a12345
-Port file: .nrepl-port
 
-You can now use clj-nrepl-eval to evaluate Clojure code.
+To evaluate code:
+  clj-nrepl-eval -p 54321 "(+ 1 2 3)"
+
+To see all connections:
+  clj-nrepl-eval --connected-ports
 ```
 
 ## Error Handling

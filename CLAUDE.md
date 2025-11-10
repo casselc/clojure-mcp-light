@@ -127,11 +127,14 @@ Look for log entries showing:
 
 ### Testing nREPL Evaluation
 ```bash
-# Start an nREPL server first (creates .nrepl-port automatically)
-clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.0.0"}}}' -M -m nrepl.cmdline
+# Start an nREPL server first
+clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.0.0"}}}' -M -m nrepl.cmdline --port 7888
 
-# In another terminal, evaluate code
-clj-nrepl-eval "(+ 1 2 3)"
+# In another terminal, discover connections
+clj-nrepl-eval --connected-ports
+
+# Evaluate code (port required)
+clj-nrepl-eval -p 7888 "(+ 1 2 3)"
 ```
 
 ### Troubleshooting Hook Tests
@@ -179,7 +182,8 @@ clj-nrepl-eval "(+ 1 2 3)"
 - Timeout/interrupt handling for long-running evaluations
 - **Persistent sessions**: Reuses session ID from per-target session files
 - Session management: `--reset-session` flag to start fresh session
-- Port detection: CLI flag > NREPL_PORT env > .nrepl-port file
+- **Connection discovery**: `--connected-ports` flag to list active connections
+- Port configuration: Explicit `--port` flag required for all operations
 
 **tmp.clj** - Unified temporary file management for Claude Code sessions
 - Provides session-scoped temporary file paths with automatic cleanup
@@ -269,7 +273,7 @@ The `eval-expr-with-timeout` function polls every 250ms to honor timeout deadlin
 ### When requiring namespaces via clj-nrepl-eval
 Always use the `:reload` flag to ensure fresh code:
 ```bash
-clj-nrepl-eval "(require 'my.namespace :reload)"
+clj-nrepl-eval -p 7888 "(require 'my.namespace :reload)"
 ```
 
 ### Testing delimiter repair in isolation
@@ -407,13 +411,6 @@ bb -e "(require '[clojure.edn :as edn]) \
 - **Fallback**: If not set, uses `java.io.tmpdir` system property
 - **Platform**: Primarily Linux; macOS and Windows typically use java.io.tmpdir fallback
 
-### NREPL_PORT
-- **Set by**: User (optional)
-- **Used by**: nREPL eval tool (`get-port` function)
-- **Purpose**: Override default nREPL port detection
-- **Format**: Integer port number (e.g., `"7888"`)
-- **Priority**: CLI flag > NREPL_PORT env var > `.nrepl-port` file
-- **Example**: `export NREPL_PORT=7888`
 
 ## Dependencies
 

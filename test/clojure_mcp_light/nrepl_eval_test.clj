@@ -22,30 +22,6 @@
       (is (string? id2))
       (is (not= id1 id2)))))
 
-(deftest slurp-nrepl-port-test
-  (testing "reads port from .nrepl-port file"
-    (let [test-port-file ".nrepl-port-test"
-          test-port 9999]
-      (try
-        ;; Create a test port file
-        (spit test-port-file (str test-port))
-        ;; Test reading it
-        (let [result (with-redefs [ne/slurp-nrepl-port
-                                   (fn []
-                                     (when (.exists (io/file test-port-file))
-                                       (parse-long (clojure.string/trim (slurp test-port-file)))))]
-                       (ne/slurp-nrepl-port))]
-          (is (= test-port result)))
-        (finally
-          ;; Clean up
-          (io/delete-file test-port-file true)))))
-
-  (testing "returns nil when file doesn't exist"
-    ;; Note: This test may fail if .nrepl-port exists from other processes
-    ;; Just test that it returns either nil or a valid port number
-    (let [result (ne/slurp-nrepl-port)]
-      (is (or (nil? result) (number? result))))))
-
 (deftest slurp-nrepl-session-test
   (testing "reads session ID from per-target session file"
     (let [test-session-file ".nrepl-session-test"

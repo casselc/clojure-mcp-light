@@ -220,8 +220,8 @@ Clojure-mcp-light provides two main tools:
 
 5. Verify installation:
    ```bash
-   # Test nREPL evaluation (requires running nREPL server)
-   clj-nrepl-eval --port 7888 "(+ 1 2 3)"
+   # Test nREPL evaluation (requires running nREPL server on port 7888)
+   clj-nrepl-eval -p 7888 "(+ 1 2 3)"
 
    # Test hook manually
    echo '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"test.clj","content":"(def x 1)"}}' | clj-paren-repair-claude-hook
@@ -477,22 +477,26 @@ The main command-line tool for evaluating Clojure code via nREPL with automatic 
 - **Automatic delimiter repair** before evaluation using parinfer-rust
 - **Timeout and interrupt handling** for long-running evaluations
 - **Formatted output** with dividers between results
-- **Flexible configuration** via command-line flags, environment variables, or `.nrepl-port` file
+- **Connection discovery** via `--connected-ports` flag
+- **Persistent sessions** with per-target session management
 
 ### Usage
 
 ```bash
-# Evaluate code (port auto-detected from .nrepl-port file or NREPL_PORT env)
-clj-nrepl-eval "(+ 1 2 3)"
+# Discover available nREPL servers
+clj-nrepl-eval --connected-ports
+
+# Evaluate code (port required)
+clj-nrepl-eval -p 7888 "(+ 1 2 3)"
 
 # Specify port explicitly
 clj-nrepl-eval --port 7888 "(println \"Hello\")"
 
-# Use short flags
-clj-nrepl-eval -p 7889 "(* 5 6)"
-
 # Set timeout (in milliseconds)
-clj-nrepl-eval --timeout 5000 "(Thread/sleep 10000)"
+clj-nrepl-eval -p 7888 --timeout 5000 "(Thread/sleep 10000)"
+
+# Reset session
+clj-nrepl-eval -p 7888 --reset-session
 
 # Show help
 clj-nrepl-eval --help
@@ -504,56 +508,24 @@ The tool automatically fixes missing or mismatched delimiters before evaluation:
 
 ```bash
 # This will be auto-fixed from "(+ 1 2 3" to "(+ 1 2 3)"
-clj-nrepl-eval "(+ 1 2 3"
+clj-nrepl-eval -p 7888 "(+ 1 2 3"
 # => 6
 ```
 
 ### Options
 
-- `-p, --port PORT` - nREPL port (default: from .nrepl-port or NREPL_PORT env)
-- `-H, --host HOST` - nREPL host (default: 127.0.0.1 or NREPL_HOST env)
+- `-p, --port PORT` - nREPL port (required)
+- `-H, --host HOST` - nREPL host (default: 127.0.0.1)
 - `-t, --timeout MILLISECONDS` - Timeout in milliseconds (default: 120000)
+- `-r, --reset-session` - Reset the persistent nREPL session
+- `-c, --connected-ports` - List all active nREPL connections
 - `-h, --help` - Show help message
 
-### Environment Variables
+### Workflow
 
-- `NREPL_PORT` - Default nREPL port
-- `NREPL_HOST` - Default nREPL host
+**1. Start an nREPL server**
 
-### Port Configuration
-
-The command needs to connect to an nREPL server. There are three ways to configure the port, checked in this order:
-
-1. **Command-line flag** (highest priority)
-   ```bash
-   clj-nrepl-eval --port 7888 "(+ 1 2)"
-   ```
-
-2. **Environment variable**
-   ```bash
-   export NREPL_PORT=7888
-   clj-nrepl-eval "(+ 1 2)"
-   ```
-
-3. **`.nrepl-port` file** (lowest priority)
-
-   Most Clojure REPLs automatically create a `.nrepl-port` file in your project directory when they start. The command will automatically read this file:
-   ```bash
-   # Start your REPL (creates .nrepl-port automatically)
-   clj -M:repl/nrepl
-
-   # In another terminal, auto-detects the port
-   clj-nrepl-eval "(+ 1 2)"
-   ```
-
-   You can also create this file manually:
-   ```bash
-   echo "7888" > .nrepl-port
-   ```
-
-**Starting an nREPL Server**
-
-If you don't have an nREPL server running, you need to start one first. Here are common ways:
+First, you need to start an nREPL server. Here are common ways:
 
 ```bash
 # Using Clojure CLI with nREPL dependency
@@ -566,17 +538,37 @@ lein repl :headless
 bb nrepl-server 7888
 ```
 
-Each of these will start an nREPL server and typically create a `.nrepl-port` file that the script can use.
+The server will print its port when it starts, or you can check the `.nrepl-port` file if one was created.
+
+**2. Discover available connections**
+
+Use `--connected-ports` to see which nREPL servers you've previously connected to:
+
+```bash
+clj-nrepl-eval --connected-ports
+# Active nREPL connections:
+#   127.0.0.1:7888 (session: abc123...)
+#   127.0.0.1:7889 (session: xyz789...)
+#
+# Total: 2 active connections
+```
+
+**3. Evaluate code**
+
+Use the `-p` or `--port` flag to specify which server to use:
+
+```bash
+clj-nrepl-eval -p 7888 "(+ 1 2 3)"
+# => 6
+```
 
 **Error Handling**
 
-If the script cannot find a port through any of the three methods, it will exit with an error:
+If you don't specify a port, you'll see:
 ```
-Error: No nREPL port found
-Provide port via --port, NREPL_PORT env var, or .nrepl-port file
+Error: --port is required
+Use --connected-ports to see available connections
 ```
-
-Make sure you have an nREPL server running and the port is configured using one of the methods above.
 
 ## How It Works
 
