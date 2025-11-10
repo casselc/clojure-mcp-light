@@ -70,104 +70,83 @@
                      (sort-by second >)
                      (take 10))]
 
-    (println)
-    (println "Delimiter Event Statistics")
-    (println (str/join (repeat 60 "=")))
-    (println)
-    (println "Total Events:" total)
-    (println "  Delimiter events: " delimiter-total)
-    (println "  Cljfmt events:    " cljfmt-total)
-    (println "  Parse errors:     " parse-total)
+    ;; Calculate delimiter metrics
+    (let [errors (get by-event-type :delimiter-error 0)
+          fixed (get by-event-type :delimiter-fixed 0)
+          failed (get by-event-type :delimiter-fix-failed 0)
+          ok (get by-event-type :delimiter-ok 0)
+          ;; Total unique operations: ok + errors (not ok + errors + fixed + failed)
+          ;; because error operations generate BOTH error AND fixed/failed events
+          total-operations (+ ok errors)
+          fix-attempts (+ fixed failed)
 
-    (when (pos? delimiter-total)
-      (print-section "Events by Type (Delimiter)")
-      (doseq [[event-type cnt] by-event-type]
-        (let [pct (if (pos? delimiter-total)
-                    (format "%.1f%%" (* 100.0 (/ cnt delimiter-total)))
-                    "0.0%")]
-          (println (format "  %-22s %5d  (%6s)" (name event-type) cnt pct))))
+          ;; Calculate cljfmt metrics
+          cljfmt-by-type (count-by :event-type cljfmt-events)
+          cljfmt-runs (get cljfmt-by-type :cljfmt-run 0)
+          cljfmt-already-formatted (get cljfmt-by-type :cljfmt-already-formatted 0)
+          cljfmt-needed-formatting (get cljfmt-by-type :cljfmt-needed-formatting 0)
+          cljfmt-errors (get cljfmt-by-type :cljfmt-check-error 0)]
 
-      (print-section "Events by Hook")
-      (doseq [[hook-event cnt] by-hook-event]
-        (println (format "  %-22s %5d" hook-event cnt)))
-
-      (when (seq by-file)
-        (print-section "Top 10 Files by Event Count")
-        (doseq [[file-path cnt] by-file]
-          (let [short-path (if (> (count file-path) 50)
-                             (str "..." (subs file-path (- (count file-path) 47)))
-                             file-path)]
-            (println (format "  %5d  %s" cnt short-path))))))
-
-    (when (pos? parse-total)
-      (print-section "Parse Errors")
-      (println (format "  Total parse errors: %5d" parse-total))
-      (let [by-message (->> parse-events
-                            (group-by :ex-message)
-                            (map (fn [[k v]] [k (count v)]))
-                            (sort-by second >)
-                            (take 5))]
-        (when (seq by-message)
-          (println)
-          (println "  Most common parse errors:")
-          (doseq [[msg cnt] by-message]
-            (let [short-msg (if (> (count msg) 60)
-                              (str (subs msg 0 57) "...")
-                              msg)]
-              (println (format "    %3d  %s" cnt short-msg)))))))
-
-    (println)))
-
-(defn calculate-success-rate
-  "Calculate delimiter fix success rate (hook-level events only)"
-  [entries]
-  (let [hook-events (filter :hook-event entries)
-        by-type (count-by :event-type hook-events)
-        errors (get by-type :delimiter-error 0)
-        fixed (get by-type :delimiter-fixed 0)
-        failed (get by-type :delimiter-fix-failed 0)
-        ok (get by-type :delimiter-ok 0)]
-
-    (print-section "Success Metrics")
-    (println (format "  Clean Code (no errors):     %5d" ok))
-    (println (format "  Errors Detected:            %5d" errors))
-    (println (format "  Successfully Fixed:         %5d" fixed))
-    (println (format "  Failed to Fix:              %5d" failed))
-    (println)
-
-    (when (pos? errors)
-      (let [fix-rate (* 100.0 (/ fixed errors))]
-        (println (format "  Fix Success Rate:          %5.1f%%" fix-rate))))
-
-    (when (pos? (+ ok errors))
-      (let [clean-rate (* 100.0 (/ ok (+ ok errors)))]
-        (println (format "  Clean Code Rate:           %5.1f%%" clean-rate))))
-
-    (println)))
-
-(defn calculate-cljfmt-efficiency
-  "Calculate cljfmt efficiency metrics"
-  [entries]
-  (let [cljfmt-events (filter #(str/starts-with? (name (:event-type %)) "cljfmt-") entries)
-        by-type (count-by :event-type cljfmt-events)
-        total-runs (get by-type :cljfmt-run 0)
-        already-formatted (get by-type :cljfmt-already-formatted 0)
-        needed-formatting (get by-type :cljfmt-needed-formatting 0)
-        check-errors (get by-type :cljfmt-check-error 0)]
-
-    (when (pos? total-runs)
-      (print-section "Cljfmt Efficiency")
-      (println (format "  Total cljfmt runs:          %5d" total-runs))
-      (println (format "  Already formatted:          %5d" already-formatted))
-      (println (format "  Needed formatting:          %5d" needed-formatting))
-      (println (format "  Check errors:               %5d" check-errors))
       (println)
+      (println "clojure-mcp-light Utility Validation")
+      (println (str/join (repeat 60 "=")))
 
-      (when (pos? (+ already-formatted needed-formatting))
-        (let [efficiency-rate (* 100.0 (/ already-formatted (+ already-formatted needed-formatting)))
-              waste-rate (* 100.0 (/ needed-formatting total-runs))]
-          (println (format "  Files already formatted:   %5.1f%%" efficiency-rate))
-          (println (format "  Files that needed fix:     %5.1f%%" waste-rate))))
+      ;; Delimiter Repair Metrics
+      (print-section "Delimiter Repair Metrics")
+      (println (format "  Total Writes/Edits:         %5d" total-operations))
+      (println (format "  Clean Code (no errors):     %5d  (%5.1f%% of total)"
+                       ok
+                       (if (pos? total-operations)
+                         (* 100.0 (/ ok total-operations))
+                         0.0)))
+      (println (format "  Errors Detected:            %5d  (%5.1f%% of total)"
+                       errors
+                       (if (pos? total-operations)
+                         (* 100.0 (/ errors total-operations))
+                         0.0)))
+      (println (format "  Successfully Fixed:         %5d  (%5.1f%% of errors)"
+                       fixed
+                       (if (pos? errors)
+                         (* 100.0 (/ fixed errors))
+                         0.0)))
+      (println (format "  Failed to Fix:              %5d  (%5.1f%% of errors)"
+                       failed
+                       (if (pos? errors)
+                         (* 100.0 (/ failed errors))
+                         0.0)))
+      (println (format "  Parse Errors:               %5d  (%5.1f%% of fix attempts)"
+                       parse-total
+                       (if (pos? fix-attempts)
+                         (* 100.0 (/ parse-total fix-attempts))
+                         0.0)))
+
+      ;; Cljfmt Metrics
+      (print-section "Cljfmt Metrics")
+      (println (format "  Total Runs:                 %5d" cljfmt-runs))
+      (println (format "  Already Formatted:          %5d  (%5.1f%% of total)"
+                       cljfmt-already-formatted
+                       (if (pos? cljfmt-runs)
+                         (* 100.0 (/ cljfmt-already-formatted cljfmt-runs))
+                         0.0)))
+      (println (format "  Needed Formatting:          %5d  (%5.1f%% of total)"
+                       cljfmt-needed-formatting
+                       (if (pos? cljfmt-runs)
+                         (* 100.0 (/ cljfmt-needed-formatting cljfmt-runs))
+                         0.0)))
+      (println (format "  Check Errors:               %5d  (%5.1f%% of total)"
+                       cljfmt-errors
+                       (if (pos? cljfmt-runs)
+                         (* 100.0 (/ cljfmt-errors cljfmt-runs))
+                         0.0)))
+
+      ;; Category Breakdown
+      (when (pos? total-operations)
+        (print-section "Events by Type")
+        (doseq [[event-type cnt] by-event-type]
+          (let [pct (if (pos? total-operations)
+                      (format "%.1f%%" (* 100.0 (/ cnt total-operations)))
+                      "0.0%")]
+            (println (format "  %-30s %5d  (%6s)" (name event-type) cnt pct)))))
 
       (println))))
 
@@ -181,8 +160,6 @@
         (System/exit 1))
       (do
         (print-summary entries)
-        (calculate-success-rate entries)
-        (calculate-cljfmt-efficiency entries)
         (System/exit 0)))))
 
 (when (= *file* (System/getProperty "babashka.file"))
