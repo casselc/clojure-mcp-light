@@ -369,6 +369,24 @@
    ["-c" "--connected-ports" "List all active nREPL connections"]
    ["-h" "--help" "Show this help message"]])
 
+(defn has-stdin-data?
+  "Check if stdin has data available (not a TTY).
+  Returns true if stdin is ready to be read (e.g., piped input or heredoc)."
+  []
+  (try
+    (.ready *in*)
+    (catch Exception _ false)))
+
+(defn get-code
+  "Get code from command-line arguments or stdin.
+  Arguments take precedence over stdin.
+  Returns nil if no code is available from either source."
+  [arguments]
+  (cond
+    (seq arguments) (first arguments)
+    (has-stdin-data?) (slurp *in*)
+    :else nil))
+
 (defn usage [options-summary]
   (str/join \newline
             ["clj-nrepl-eval - Evaluate Clojure code via nREPL"
@@ -376,6 +394,8 @@
              "Usage: clj-nrepl-eval --port PORT CODE"
              "       clj-nrepl-eval --port PORT --reset-session [CODE]"
              "       clj-nrepl-eval --connected-ports"
+             "       echo CODE | clj-nrepl-eval --port PORT"
+             "       clj-nrepl-eval --port PORT <<'EOF' ... EOF"
              ""
              "Options:"
              options-summary
@@ -385,6 +405,10 @@
              "  session file. State (vars, namespaces, loaded libraries) persists across"
              "  invocations until the nREPL server restarts or --reset-session is used."
              ""
+             "Input Methods:"
+             "  Code can be provided as a command-line argument or via stdin (pipe/heredoc)."
+             "  Arguments take precedence over stdin when both are provided."
+             ""
              "Workflow:"
              "  1. Use --connected-ports to discover available nREPL servers"
              "  2. Use --port to connect to a specific server"
@@ -393,9 +417,18 @@
              "  # Discover available connections"
              "  clj-nrepl-eval --connected-ports"
              ""
-             "  # Evaluate code"
+             "  # Evaluate code (argument)"
              "  clj-nrepl-eval -p 7888 \"(+ 1 2 3)\""
              "  clj-nrepl-eval --port 7888 \"(println \\\"Hello\\\")\""
+             ""
+             "  # Evaluate code (stdin pipe)"
+             "  echo \"(+ 1 2 3)\" | clj-nrepl-eval -p 7888"
+             ""
+             "  # Evaluate code (heredoc)"
+             "  clj-nrepl-eval -p 7888 <<'EOF'"
+             "  (def x 10)"
+             "  (+ x 20)"
+             "  EOF"
              ""
              "  # With timeout"
              "  clj-nrepl-eval -p 7888 --timeout 5000 \"(Thread/sleep 10000)\""
@@ -448,35 +481,34 @@
           (delete-nrepl-session host port)
           (println (str "Session reset for " host ":" port))
           ;; If code is provided, continue to evaluate it with new session
-          (when (seq arguments)
-            (let [expr (first arguments)]
-              (eval-and-print {:host host
-                               :port port
-                               :expr expr
-                               :timeout-ms (:timeout options)}))))
+          (when-let [expr (get-code arguments)]
+            (eval-and-print {:host host
+                             :port port
+                             :expr expr
+                             :timeout-ms (:timeout options)})))
         (do
           (binding [*out* *err*]
             (println "Error: --port is required for --reset-session")
             (println "Use --connected-ports to see available connections"))
           (System/exit 1)))
 
-      (empty? arguments)
-      (do
-        (binding [*out* *err*]
-          (println "Error: No code provided")
-          (println)
-          (println (usage summary)))
-        (System/exit 1))
-
       :else
-      (if-let [port (:port options)]
-        (let [expr (first arguments)]
-          (eval-and-print {:host (get-host options)
-                           :port port
-                           :expr expr
-                           :timeout-ms (:timeout options)}))
-        (do
-          (binding [*out* *err*]
-            (println "Error: --port is required")
-            (println "Use --connected-ports to see available connections"))
-          (System/exit 1))))))
+      (let [code (get-code arguments)]
+        (if-not code
+          (do
+            (binding [*out* *err*]
+              (println "Error: No code provided")
+              (println "Provide code as an argument or via stdin (pipe/heredoc)")
+              (println)
+              (println (usage summary)))
+            (System/exit 1))
+          (if-let [port (:port options)]
+            (eval-and-print {:host (get-host options)
+                             :port port
+                             :expr code
+                             :timeout-ms (:timeout options)})
+            (do
+              (binding [*out* *err*]
+                (println "Error: --port is required")
+                (println "Use --connected-ports to see available connections"))
+              (System/exit 1))))))))
