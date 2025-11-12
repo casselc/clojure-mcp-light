@@ -477,13 +477,17 @@ The main command-line tool for evaluating Clojure code via nREPL with automatic 
 - **Automatic delimiter repair** before evaluation using parinfer-rust
 - **Timeout and interrupt handling** for long-running evaluations
 - **Formatted output** with dividers between results
-- **Connection discovery** via `--connected-ports` flag
+- **Server discovery** via `--discover-ports` flag (finds nREPL servers in current directory)
+- **Connection tracking** via `--connected-ports` flag (shows previously connected sessions)
 - **Persistent sessions** with per-target session management
 
 ### Usage
 
 ```bash
-# Discover available nREPL servers
+# Discover nREPL servers in current directory
+clj-nrepl-eval --discover-ports
+
+# Check previously connected sessions
 clj-nrepl-eval --connected-ports
 
 # Evaluate code (port required)
@@ -518,7 +522,8 @@ clj-nrepl-eval -p 7888 "(+ 1 2 3"
 - `-H, --host HOST` - nREPL host (default: 127.0.0.1)
 - `-t, --timeout MILLISECONDS` - Timeout in milliseconds (default: 120000)
 - `-r, --reset-session` - Reset the persistent nREPL session
-- `-c, --connected-ports` - List all active nREPL connections
+- `-c, --connected-ports` - List previously connected nREPL sessions
+- `-d, --discover-ports` - Discover nREPL servers in current directory
 - `-h, --help` - Show help message
 
 ### Workflow
@@ -540,9 +545,20 @@ bb nrepl-server 7888
 
 The server will print its port when it starts, or you can check the `.nrepl-port` file if one was created.
 
-**2. Discover available connections**
+**2. Discover available nREPL servers**
 
-Use `--connected-ports` to see which nREPL servers you've previously connected to:
+Use `--discover-ports` to find nREPL servers running in the current directory:
+
+```bash
+clj-nrepl-eval --discover-ports
+# Discovered nREPL servers in current directory (/path/to/project):
+#   localhost:7889 (bb)
+#   localhost:55077 (clj)
+#
+# Total: 2 servers in current directory
+```
+
+Or use `--connected-ports` to see which servers you've previously connected to:
 
 ```bash
 clj-nrepl-eval --connected-ports

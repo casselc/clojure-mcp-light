@@ -21,10 +21,15 @@ The `clj-nrepl-eval` command evaluates Clojure code against an nREPL server. **S
 
 ## Instructions
 
-### 0. Ask the user about the nREPL server
+### 0. Discover available nREPL servers
 
-Ask the user what nREPL port to connect to or if they would like you to
-start a nREPL server.
+First, discover what nREPL servers are running in the current directory:
+
+```bash
+clj-nrepl-eval --discover-ports
+```
+
+This will show all nREPL servers (Clojure, Babashka, etc.) running in the current project directory. If no servers are found, ask the user if they would like you to start one.
 
 ### 1. Evaluate Clojure Code
 
@@ -59,17 +64,17 @@ echo "(+ 1 2 3)" | clj-nrepl-eval -p 7888
 
 ### 2. Display nREPL Sessions
 
-You can check if you already have an active session on a port:
+**Discover all nREPL servers in current directory:**
+```bash
+clj-nrepl-eval --discover-ports
+```
+Shows all running nREPL servers in the current project directory, including their type (clj/bb/basilisp) and whether they match the current working directory.
 
+**Check previously connected sessions:**
 ```bash
 clj-nrepl-eval --connected-ports
 ```
-
-Connections only appear in this list after you've evaluated code on
-that port at least once and **connected to the port**
-
-**Important:** This only shows connections you have made, not all nREPL
-servers running on the system.
+Shows only connections you have made before (appears after first evaluation on a port).
 
 ### 3. Common Patterns
 
@@ -124,7 +129,8 @@ EOF
 - `-H, --host HOST` - nREPL host (default: 127.0.0.1)
 - `-t, --timeout MILLISECONDS` - Timeout (default: 120000 = 2 minutes)
 - `-r, --reset-session` - Reset the persistent nREPL session
-- `-c, --connected-ports` - List all active nREPL connections
+- `-c, --connected-ports` - List previously connected nREPL sessions
+- `-d, --discover-ports` - Discover nREPL servers in current directory
 - `-h, --help` - Show help message
 
 ## Important Notes
@@ -138,17 +144,18 @@ EOF
 
 ## Typical Workflow
 
-1. Discover connections: `clj-nrepl-eval --connected-ports`
-2. Require namespace:
+1. Discover nREPL servers: `clj-nrepl-eval --discover-ports`
+2. Choose a port from the discovered servers
+3. Require namespace:
    ```bash
    clj-nrepl-eval -p 7888 <<'EOF'
    (require '[my.ns :as ns] :reload)
    EOF
    ```
-3. Test function:
+4. Test function:
    ```bash
    clj-nrepl-eval -p 7888 <<'EOF'
    (ns/my-fn ...)
    EOF
    ```
-4. Iterate: Make changes, re-require with `:reload`, test again
+5. Iterate: Make changes, re-require with `:reload`, test again

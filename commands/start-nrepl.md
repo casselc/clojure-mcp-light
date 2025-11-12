@@ -25,12 +25,12 @@ If neither file exists or nREPL is not configured:
 
 ## Step 3: Check for Existing nREPL Servers
 
-Before starting a new server, check for existing connections:
+Before starting a new server, check for existing servers in the current directory:
 
-1. Run `clj-nrepl-eval --connected-ports` to see active servers
-2. If servers are found, inform the user and display the ports
+1. Run `clj-nrepl-eval --discover-ports` to find nREPL servers in current directory
+2. If servers are found, inform the user and display the ports with their types (clj/bb/etc)
 3. Ask if they want to start an additional server or use an existing one
-4. Optionally check if `.nrepl-port` file exists as a fallback indicator
+4. Optionally also check `clj-nrepl-eval --connected-ports` to see previously connected sessions
 
 ## Step 4: Start nREPL Server
 
