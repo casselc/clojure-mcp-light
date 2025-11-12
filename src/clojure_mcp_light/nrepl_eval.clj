@@ -99,11 +99,11 @@
       (when (some #{session-id} active-sessions)
         session-id))))
 
-(defn get-active-sessions
-  "Get list of active session IDs from nREPL server.
-   Returns nil if unable to connect or on error.
+(defn nrepl-op
+  "Send an nREPL operation and get response.
+   Returns response map or nil on error.
    Uses a 500ms timeout for connection and read operations."
-  [host port]
+  [host port op-map]
   (try
     (with-open [s (java.net.Socket.)]
       (.connect s (java.net.InetSocketAddress. (or host "localhost") (coerce-long port)) 500)
@@ -111,11 +111,33 @@
       (let [out (java.io.BufferedOutputStream. (.getOutputStream s))
             in (java.io.PushbackInputStream. (.getInputStream s))
             id (next-id)
-            _ (write-bencode-msg out {"op" "ls-sessions" "id" id})
+            msg (assoc op-map "id" id)
+            _ (write-bencode-msg out msg)
             response (read-msg (b/read-bencode in))]
-        (:sessions response)))
+        response))
     (catch Exception _
       nil)))
+
+(defn describe-nrepl
+  "Get nREPL server description including versions and supported ops.
+   Returns description map or nil on error."
+  [host port]
+  (nrepl-op host port {"op" "describe"}))
+
+(defn eval-nrepl
+  "Evaluate code on nREPL server and return the value.
+   Returns the evaluated value as a string, or nil on error."
+  [host port code]
+  (when-let [response (nrepl-op host port {"op" "eval" "code" code})]
+    (:value response)))
+
+(defn get-active-sessions
+  "Get list of active session IDs from nREPL server.
+   Returns nil if unable to connect or on error.
+   Uses a 500ms timeout for connection and read operations."
+  [host port]
+  (when-let [response (nrepl-op host port {"op" "ls-sessions"})]
+    (:sessions response)))
 
 (defn validate-session
   "Check if session-id is still valid on the nREPL server.
@@ -190,6 +212,39 @@
 
 ;; Port discovery
 
+(defn detect-nrepl-env-type
+  "Detect nREPL environment type from describe response.
+   Returns :clj, :bb, :basilisp, :scittle, or :unknown."
+  [describe-response]
+  (when-let [versions (:versions describe-response)]
+    (cond
+      (or (get versions :clojure) (get versions "clojure")) :clj
+      (or (get versions :babashka) (get versions "babashka")) :bb
+      (or (get versions :basilisp) (get versions "basilisp")) :basilisp
+      (or (get versions :sci-nrepl) (get versions "sci-nrepl")) :scittle
+      :else :unknown)))
+
+(defmulti fetch-project-directory-exp
+  "Returns an expression (string) to evaluate for getting the project directory.
+   Dispatches on nrepl-env-type."
+  (fn [nrepl-env-type] nrepl-env-type))
+
+(defmethod fetch-project-directory-exp :clj
+  [_]
+  "(System/getProperty \"user.dir\")")
+
+(defmethod fetch-project-directory-exp :bb
+  [_]
+  "(System/getProperty \"user.dir\")")
+
+(defmethod fetch-project-directory-exp :basilisp
+  [_]
+  "(import os)\n(os/getcwd)")
+
+(defmethod fetch-project-directory-exp :default
+  [_]
+  nil)
+
 (defn read-nrepl-port-file
   "Read port number from .nrepl-port file in current directory.
    Returns nil if file doesn't exist or on error."
@@ -203,12 +258,12 @@
 
 (defn parse-lsof-ports
   "Parse port numbers from lsof output.
-   Expects lines like: 'java    12345 user   49u  IPv4 0x1234  TCP *:7888 (LISTEN)'"
+   Matches patterns like: 'TCP *:7888 (LISTEN)' or 'TCP 127.0.0.1:7889 (LISTEN)'"
   [lsof-output]
   (when lsof-output
     (->> (str/split-lines lsof-output)
          (keep (fn [line]
-                 (when-let [[_ port] (re-find #"\*:(\d+)\s+\(LISTEN\)" line)]
+                 (when-let [[_ port] (re-find #"TCP\s+(?:\*|[\d.]+):(\d+)\s+\(LISTEN\)" line)]
                    (parse-long port))))
          distinct
          vec)))
@@ -232,31 +287,61 @@
    1. Checking .nrepl-port file in current directory
    2. Finding Java/Clojure/Babashka processes listening on TCP ports (lsof)
    3. Validating discovered ports by checking if they respond to ls-sessions
+   4. Detecting environment type (clj, bb, basilisp, etc.)
+   5. Getting project directory and checking if it matches current working directory
 
    Returns vector of maps with:
    - :host - Host string (always \"localhost\")
    - :port - Port number
    - :source - How port was discovered (:nrepl-port-file or :lsof)
-   - :valid - Boolean indicating if port responds to nREPL ls-sessions op"
+   - :valid - Boolean indicating if port responds to nREPL ls-sessions op
+   - :env-type - Environment type (:clj, :bb, :basilisp, :scittle, :unknown, or nil if invalid)
+   - :project-dir - Project directory path from nREPL server (or nil)
+   - :matches-cwd - Boolean indicating if project-dir matches current working directory"
   []
   (let [;; Collect port candidates
         port-file-port (read-nrepl-port-file)
         lsof-ports (get-listening-jvm-ports)
+        current-dir (System/getProperty "user.dir")
 
         ;; Combine and deduplicate
         all-ports (distinct (concat (when port-file-port [port-file-port])
                                     lsof-ports))
 
-        ;; Validate each port
+        ;; Validate each port and gather info
         results (for [port all-ports]
                   (let [source (if (= port port-file-port) :nrepl-port-file :lsof)
                         sessions (get-active-sessions "localhost" port)
                         valid (some? sessions)]
-                    {:host "localhost"
-                     :port port
-                     :source source
-                     :valid valid
-                     :session-count (if sessions (count sessions) 0)}))]
+                    (if valid
+                      ;; Valid nREPL - get env type and project dir
+                      (let [describe-resp (describe-nrepl "localhost" port)
+                            env-type (detect-nrepl-env-type describe-resp)
+                            dir-expr (fetch-project-directory-exp env-type)
+                            project-dir (when dir-expr
+                                          (eval-nrepl "localhost" port dir-expr))
+                            ;; Strip quotes if present (e.g., "\"/path\"" -> "/path")
+                            project-dir (when project-dir
+                                          (str/replace project-dir #"^\"|\"$" ""))
+                            matches-cwd (and project-dir
+                                             (= project-dir current-dir))]
+                        {:host "localhost"
+                         :port port
+                         :source source
+                         :valid true
+                         :session-count (count sessions)
+                         :env-type env-type
+                         :project-dir project-dir
+                         :matches-cwd matches-cwd})
+                      ;; Invalid nREPL
+                      {:host "localhost"
+                       :port port
+                       :source source
+                       :valid false
+                       :session-count 0
+                       :env-type nil
+                       :project-dir nil
+                       :matches-cwd false})))]
     (vec results)))
 
 ;; Utility functions
@@ -381,6 +466,7 @@
     :validate [#(> % 0) "Must be a positive number"]]
    ["-r" "--reset-session" "Reset the persistent nREPL session"]
    ["-c" "--connected-ports" "List all active nREPL connections"]
+   ["-d" "--discover-ports" "Discover nREPL servers in current directory"]
    ["-h" "--help" "Show this help message"]])
 
 (defn has-stdin-data?
@@ -408,6 +494,7 @@
              "Usage: clj-nrepl-eval --port PORT CODE"
              "       clj-nrepl-eval --port PORT --reset-session [CODE]"
              "       clj-nrepl-eval --connected-ports"
+             "       clj-nrepl-eval --discover-ports"
              "       echo CODE | clj-nrepl-eval --port PORT"
              "       clj-nrepl-eval --port PORT <<'EOF' ... EOF"
              ""
@@ -424,11 +511,16 @@
              "  Arguments take precedence over stdin when both are provided."
              ""
              "Workflow:"
-             "  1. Use --connected-ports to discover available nREPL servers"
-             "  2. Use --port to connect to a specific server"
+             "  1. Use --discover-ports to find nREPL servers in current directory"
+             "  2. Use --connected-ports to see previously connected servers"
+             "  3. Use --port to connect to a specific server"
              ""
              "Examples:"
-             "  # Discover available connections"
+             "  # Discover nREPL servers in current directory"
+             "  # (scans .nrepl-port file and running JVM/Babashka processes)"
+             "  clj-nrepl-eval --discover-ports"
+             ""
+             "  # List previously connected servers"
              "  clj-nrepl-eval --connected-ports"
              ""
              "  # Evaluate code (argument)"
@@ -487,6 +579,25 @@
             (println (format "Total: %d active connection%s"
                              (count connections)
                              (if (= 1 (count connections)) "" "s"))))))
+
+      ;; Handle --discover-ports flag
+      (:discover-ports options)
+      (let [discovered (discover-nrepl-ports)
+            valid-servers (filter :valid discovered)
+            current-dir-servers (filter :matches-cwd valid-servers)]
+        (if (empty? current-dir-servers)
+          (println (format "No nREPL servers found in current directory (%s)." (System/getProperty "user.dir")))
+          (do
+            (println (format "Discovered nREPL servers in current directory (%s):" (System/getProperty "user.dir")))
+            (doseq [{:keys [host port env-type]} current-dir-servers]
+              (println (format "  %s:%d (%s)"
+                               host
+                               port
+                               (name (or env-type :unknown)))))
+            (println)
+            (println (format "Total: %d server%s in current directory"
+                             (count current-dir-servers)
+                             (if (= 1 (count current-dir-servers)) "" "s"))))))
 
       ;; Handle --reset-session flag
       (:reset-session options)
