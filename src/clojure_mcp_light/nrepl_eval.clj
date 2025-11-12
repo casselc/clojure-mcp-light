@@ -552,6 +552,64 @@
   [opts]
   (or (:host opts) "127.0.0.1"))
 
+(defn handle-connected-ports
+  "Handler for --connected-ports flag.
+   Lists all previously connected nREPL servers from session files."
+  []
+  (let [connections (list-connected-ports)]
+    (if (empty? connections)
+      (println "No active nREPL connections found.")
+      (do
+        (println "Active nREPL connections:")
+        (doseq [{:keys [host port session-id]} connections]
+          (println (format "  %s:%d (session: %s)" host port session-id)))
+        (println)
+        (println (format "Total: %d active connection%s"
+                         (count connections)
+                         (if (= 1 (count connections)) "" "s")))))))
+
+(defn handle-discover-ports
+  "Handler for --discover-ports flag.
+   Discovers and lists nREPL servers in the current directory."
+  []
+  (let [discovered (discover-nrepl-ports)
+        valid-servers (filter :valid discovered)
+        current-dir-servers (filter :matches-cwd valid-servers)]
+    (if (empty? current-dir-servers)
+      (println (format "No nREPL servers found in current directory (%s)." (System/getProperty "user.dir")))
+      (do
+        (println (format "Discovered nREPL servers in current directory (%s):" (System/getProperty "user.dir")))
+        (doseq [{:keys [host port env-type]} current-dir-servers]
+          (println (format "  %s:%d (%s)"
+                           host
+                           port
+                           (name (or env-type :unknown)))))
+        (println)
+        (println (format "Total: %d server%s in current directory"
+                         (count current-dir-servers)
+                         (if (= 1 (count current-dir-servers)) "" "s")))))))
+
+(defn handle-reset-session
+  "Handler for --reset-session flag.
+   Resets the persistent nREPL session and optionally evaluates code."
+  [options arguments]
+  (if-let [port (:port options)]
+    (let [host (get-host options)]
+      (delete-nrepl-session host port)
+      (println (str "Session reset for " host ":" port))
+      ;; If code is provided, continue to evaluate it with new session
+      (when-let [expr (get-code arguments)]
+        (eval-expr-with-timeout (cond-> {:host host
+                                         :port port
+                                         :expr expr}
+                                  (:timeout options)
+                                  (assoc :timeout-ms (:timeout options))))))
+    (do
+      (binding [*out* *err*]
+        (println "Error: --port is required for --reset-session")
+        (println "Use --connected-ports to see available connections"))
+      (System/exit 1))))
+
 (defn -main [& args]
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
     (cond
@@ -568,55 +626,15 @@
 
       ;; Handle --connected-ports flag
       (:connected-ports options)
-      (let [connections (list-connected-ports)]
-        (if (empty? connections)
-          (println "No active nREPL connections found.")
-          (do
-            (println "Active nREPL connections:")
-            (doseq [{:keys [host port session-id]} connections]
-              (println (format "  %s:%d (session: %s)" host port session-id)))
-            (println)
-            (println (format "Total: %d active connection%s"
-                             (count connections)
-                             (if (= 1 (count connections)) "" "s"))))))
+      (handle-connected-ports)
 
       ;; Handle --discover-ports flag
       (:discover-ports options)
-      (let [discovered (discover-nrepl-ports)
-            valid-servers (filter :valid discovered)
-            current-dir-servers (filter :matches-cwd valid-servers)]
-        (if (empty? current-dir-servers)
-          (println (format "No nREPL servers found in current directory (%s)." (System/getProperty "user.dir")))
-          (do
-            (println (format "Discovered nREPL servers in current directory (%s):" (System/getProperty "user.dir")))
-            (doseq [{:keys [host port env-type]} current-dir-servers]
-              (println (format "  %s:%d (%s)"
-                               host
-                               port
-                               (name (or env-type :unknown)))))
-            (println)
-            (println (format "Total: %d server%s in current directory"
-                             (count current-dir-servers)
-                             (if (= 1 (count current-dir-servers)) "" "s"))))))
+      (handle-discover-ports)
 
       ;; Handle --reset-session flag
       (:reset-session options)
-      (if-let [port (:port options)]
-        (let [host (get-host options)]
-          (delete-nrepl-session host port)
-          (println (str "Session reset for " host ":" port))
-          ;; If code is provided, continue to evaluate it with new session
-          (when-let [expr (get-code arguments)]
-            (eval-expr-with-timeout (cond-> {:host host
-                                             :port port
-                                             :expr expr}
-                                      (:timeout options)
-                                      (assoc :timeout-ms (:timeout options))))))
-        (do
-          (binding [*out* *err*]
-            (println "Error: --port is required for --reset-session")
-            (println "Use --connected-ports to see available connections"))
-          (System/exit 1)))
+      (handle-reset-session options arguments)
 
       :else
       (let [code (get-code arguments)]
