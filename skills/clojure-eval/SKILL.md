@@ -37,7 +37,7 @@ This will show all nREPL servers (Clojure, Babashka, shadow-cljs, etc.) running 
   - **question:** "Which nREPL port would you like to use?"
   - **header:** "nREPL Port"
   - **options:** Present each discovered port as an option with:
-    - **label:** The port number (e.g., "7888")
+    - **label:** The port number 
     - **description:** The server type and status (e.g., "Clojure nREPL server in current directory")
   - Include up to 4 discovered ports as options
   - The user can select "Other" to enter a custom port number
@@ -49,6 +49,8 @@ This will show all nREPL servers (Clojure, Babashka, shadow-cljs, etc.) running 
     - **label:** "deps.edn alias", **description:** "Find and use an nREPL alias in deps.edn"
     - **label:** "Leiningen", **description:** "Start nREPL using 'lein repl'"
   - The user can select "Other" for alternative methods or if they already have a server running on a specific port
+
+IMPORTANT: IF you start a REPL do not supply a port let the nREPL start and return the port that it was started on.
 
 ### 1. Evaluate Clojure Code
 
