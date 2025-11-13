@@ -84,7 +84,7 @@
           ;; Calculate cljfmt metrics
           cljfmt-by-type (count-by :event-type cljfmt-events)
           cljfmt-already-formatted (get cljfmt-by-type :cljfmt-already-formatted 0)
-          cljfmt-needed-formatting (get cljfmt-by-type :cljfmt-run 0)
+          cljfmt-needed-formatting (get cljfmt-by-type :cljfmt-needed-formatting 0)
           cljfmt-fix-succeeded (get cljfmt-by-type :cljfmt-fix-succeeded 0)
           cljfmt-fix-failed (get cljfmt-by-type :cljfmt-fix-failed 0)
           cljfmt-check-errors (get cljfmt-by-type :cljfmt-check-error 0)
