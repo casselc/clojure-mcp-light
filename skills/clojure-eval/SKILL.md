@@ -21,7 +21,7 @@ The `clj-nrepl-eval` command evaluates Clojure code against an nREPL server. **S
 
 ## Instructions
 
-### 0. Discover available nREPL servers
+### 0. Discover and select nREPL server
 
 First, discover what nREPL servers are running in the current directory:
 
@@ -29,7 +29,26 @@ First, discover what nREPL servers are running in the current directory:
 clj-nrepl-eval --discover-ports
 ```
 
-This will show all nREPL servers (Clojure, Babashka, etc.) running in the current project directory. If no servers are found, ask the user if they would like you to start one.
+This will show all nREPL servers (Clojure, Babashka, shadow-cljs, etc.) running in the current project directory.
+
+**Then use the AskUserQuestion tool:**
+
+- **If ports are discovered:** Prompt user to select which nREPL port to use:
+  - **question:** "Which nREPL port would you like to use?"
+  - **header:** "nREPL Port"
+  - **options:** Present each discovered port as an option with:
+    - **label:** The port number (e.g., "7888")
+    - **description:** The server type and status (e.g., "Clojure nREPL server in current directory")
+  - Include up to 4 discovered ports as options
+  - The user can select "Other" to enter a custom port number
+
+- **If no ports are discovered:** Prompt user how to start an nREPL server:
+  - **question:** "No nREPL servers found. How would you like to start one?"
+  - **header:** "Start nREPL"
+  - **options:**
+    - **label:** "deps.edn alias", **description:** "Find and use an nREPL alias in deps.edn"
+    - **label:** "Leiningen", **description:** "Start nREPL using 'lein repl'"
+  - The user can select "Other" for alternative methods or if they already have a server running on a specific port
 
 ### 1. Evaluate Clojure Code
 
@@ -145,7 +164,7 @@ EOF
 ## Typical Workflow
 
 1. Discover nREPL servers: `clj-nrepl-eval --discover-ports`
-2. Choose a port from the discovered servers
+2. Use **AskUserQuestion** tool to prompt user to select a port
 3. Require namespace:
    ```bash
    clj-nrepl-eval -p 7888 <<'EOF'
