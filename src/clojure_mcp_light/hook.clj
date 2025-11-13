@@ -18,6 +18,7 @@
 ;; ============================================================================
 
 (def ^:dynamic *enable-cljfmt* false)
+(def ^:dynamic *enable-revert* true)
 
 ;; ============================================================================
 ;; CLI Options
@@ -25,6 +26,9 @@
 
 (def cli-options
   [[nil "--cljfmt" "Enable cljfmt formatting on files after edit/write"]
+   [nil "--no-revert" "Disable automatic file revert on unfixable delimiter errors"
+    :id :no-revert
+    :default false]
    [nil "--stats" "Enable statistics tracking for delimiter events (default: ~/.clojure-mcp-light/stats.log)"
     :id :stats
     :default false]
@@ -48,6 +52,7 @@
        "\n"
        "Options:\n"
        "      --cljfmt              Enable cljfmt formatting on files after edit/write\n"
+       "      --no-revert           Disable automatic file revert on unfixable delimiter errors\n"
        "      --stats               Enable statistics tracking for delimiter events\n"
        "                            (default: ~/.clojure-mcp-light/stats.log)\n"
        "      --stats-file PATH     Path to stats file (only used when --stats is enabled)\n"
@@ -307,14 +312,15 @@
             (timbre/error "  Error: Validate Edit failed" (.getMessage e))
             nil)))
 
-      (try
-        ;; Create backup (existing behavior)
-        (let [backup (backup-file file_path session_id)]
-          (timbre/debug "  Created backup:" backup)
-          nil)
-        (catch Exception e
-          (timbre/debug "  Edit processing failed:" (.getMessage e))
-          nil)))))
+      ;; Only create backup if revert is enabled
+      (when *enable-revert*
+        (try
+          (let [backup (backup-file file_path session_id)]
+            (timbre/debug "  Created backup:" backup)
+            nil)
+          (catch Exception e
+            (timbre/debug "  Edit processing failed:" (.getMessage e))
+            nil))))))
 
 (defmethod process-hook ["PostToolUse" "Write"]
   [{:keys [tool_input tool_response]}]
@@ -330,6 +336,7 @@
     (when (and (clojure-file? file_path) tool_response)
       (timbre/debug "PostEdit: clojure" file_path)
       (let [backup (tmp/backup-path {:session-id session_id} file_path)
+            backup-exists? (.exists (io/file backup))
             file-content (slurp file_path)]
         (if (delimiter-error? file-content)
           (let [actual-error? (actual-delimiter-error? file-content)]
@@ -346,17 +353,29 @@
                   (run-cljfmt file_path))
                 nil
                 (finally
-                  (delete-backup backup)))
+                  (when backup-exists?
+                    (delete-backup backup))))
               (do
                 (when actual-error?
                   (stats/log-event! :delimiter-fix-failed "PostToolUse:Edit" file_path))
-                (timbre/debug "  Fix failed, restoring from backup:" backup)
-                (restore-file file_path backup)
-                {:decision "block"
-                 :reason (str "Delimiter errors could not be auto-fixed. File was restored from backup to previous state: " file_path)
-                 :hookSpecificOutput
-                 {:hookEventName "PostToolUse"
-                  :additionalContext "There are delimiter errors in the file. So we restored from backup."}})))
+                (if (and *enable-revert* backup-exists?)
+                  (do
+                    (timbre/debug "  Fix failed, restoring from backup:" backup)
+                    (restore-file file_path backup)
+                    {:decision "block"
+                     :reason (str "Delimiter errors could not be auto-fixed. File was restored from backup to previous state: " file_path)
+                     :hookSpecificOutput
+                     {:hookEventName "PostToolUse"
+                      :additionalContext "There are delimiter errors in the file. So we restored from backup."}})
+                  (do
+                    (timbre/debug "  Fix failed, revert disabled - blocking without restore")
+                    (when backup-exists?
+                      (delete-backup backup))
+                    {:decision "block"
+                     :reason (str "Delimiter errors could not be auto-fixed in file: " file_path)
+                     :hookSpecificOutput
+                     {:hookEventName "PostToolUse"
+                      :additionalContext "There are delimiter errors in the file. Revert is disabled, so the file was not restored."}})))))
           (try
             (stats/log-event! :delimiter-ok "PostToolUse:Edit" file_path)
             (timbre/debug "  No delimiter errors, deleting backup")
@@ -364,7 +383,8 @@
               (run-cljfmt file_path))
             nil
             (finally
-              (delete-backup backup))))))))
+              (when backup-exists?
+                (delete-backup backup)))))))))
 
 (defmethod process-hook ["SessionEnd" nil]
   [{:keys [session_id]}]
@@ -400,8 +420,9 @@
                                       {:allow "clojure-mcp-light.*"}
                                       {:deny "*"}))}})
 
-    ;; Set cljfmt and stats flags from CLI options
+    ;; Set cljfmt, revert, and stats flags from CLI options
     (binding [*enable-cljfmt* (:cljfmt options)
+              *enable-revert* (not (:no-revert options))
               stats/*enable-stats* enable-stats?
               stats/*stats-file-path* stats-path]
       (try
