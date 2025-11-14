@@ -1,20 +1,64 @@
 (ns clojure-mcp-light.hook-test
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure-mcp-light.hook :as hook]))
+            [clojure-mcp-light.hook :as hook]
+            [babashka.fs :as fs]))
 
 (deftest clojure-file?-test
-  (testing "identifies Clojure files"
+  (testing "identifies Clojure files by extension"
     (is (hook/clojure-file? "test.clj"))
     (is (hook/clojure-file? "test.cljs"))
     (is (hook/clojure-file? "test.cljc"))
     (is (hook/clojure-file? "test.bb"))
+    (is (hook/clojure-file? "test.lpy"))
     (is (hook/clojure-file? "config.edn")))
+
+  (testing "case-insensitive extension matching"
+    (is (hook/clojure-file? "test.CLJ"))
+    (is (hook/clojure-file? "test.CLJS"))
+    (is (hook/clojure-file? "test.EDN"))
+    (is (hook/clojure-file? "test.LPY")))
+
+  (testing "identifies files with Babashka shebang"
+    (let [temp-file (str (fs/create-temp-file {:prefix "test-bb-" :suffix ".sh"}))]
+      (try
+        (spit temp-file "#!/usr/bin/env bb\n(println \"hello\")")
+        (is (hook/clojure-file? temp-file))
+        (finally
+          (fs/delete-if-exists temp-file))))
+
+    (let [temp-file (str (fs/create-temp-file {:prefix "test-bb-" :suffix ".sh"}))]
+      (try
+        (spit temp-file "#!/usr/bin/bb\n(println \"hello\")")
+        (is (hook/clojure-file? temp-file))
+        (finally
+          (fs/delete-if-exists temp-file))))
+
+    (let [temp-file (str (fs/create-temp-file {:prefix "test-bb-" :suffix ".sh"}))]
+      (try
+        (spit temp-file "#!/usr/local/bin/bb --nrepl-server 1667\n(println \"hello\")")
+        (is (hook/clojure-file? temp-file))
+        (finally
+          (fs/delete-if-exists temp-file)))))
+
+  (testing "rejects files without Babashka shebang"
+    (let [temp-file (str (fs/create-temp-file {:prefix "test-bash-" :suffix ".sh"}))]
+      (try
+        (spit temp-file "#!/bin/bash\necho \"hello\"")
+        (is (nil? (hook/clojure-file? temp-file)))
+        (finally
+          (fs/delete-if-exists temp-file)))))
 
   (testing "rejects non-Clojure files"
     (is (nil? (hook/clojure-file? "test.js")))
     (is (nil? (hook/clojure-file? "test.py")))
     (is (nil? (hook/clojure-file? "README.md")))
-    (is (nil? (hook/clojure-file? "package.json")))))
+    (is (nil? (hook/clojure-file? "package.json"))))
+
+  (testing "handles nil file path"
+    (is (nil? (hook/clojure-file? nil))))
+
+  (testing "handles non-existent file without error"
+    (is (nil? (hook/clojure-file? "/nonexistent/file.xyz")))))
 
 (deftest process-hook-test
   (testing "allows non-Clojure files through unchanged"

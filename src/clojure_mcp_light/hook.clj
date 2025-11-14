@@ -91,9 +91,40 @@
 ;; Claude Code Hook Functions
 ;; ============================================================================
 
-(defn clojure-file? [file-path]
-  (some #(string/ends-with? file-path %)
-        [".clj" ".cljs" ".cljc" ".bb" ".edn"]))
+(defn- babashka-shebang?
+  "Checks if a file starts with a Babashka shebang.
+   Returns true if the first line matches a Babashka shebang pattern."
+  [file-path]
+  (when (fs/exists? file-path)
+    (try
+      (with-open [r (io/reader file-path)]
+        (let [line (-> r line-seq first)]
+          (and line
+               (re-matches #"^#!/[^\s]+/(bb|env\s{1,3}bb)(\s.*)?$" line))))
+      (catch Exception _ false))))
+
+(defn clojure-file?
+  "Checks if a file path has a Clojure-related extension or Babashka shebang.
+
+   Supported extensions:
+   - .clj (Clojure)
+   - .cljs (ClojureScript)
+   - .cljc (Clojure/ClojureScript shared)
+   - .bb (Babashka)
+   - .edn (Extensible Data Notation)
+   - .lpy (Basilisp)
+
+   Also detects files starting with a Babashka shebang (`bb`)."
+  [file-path]
+  (when file-path
+    (let [lower-path (string/lower-case file-path)]
+      (or (string/ends-with? lower-path ".clj")
+          (string/ends-with? lower-path ".cljs")
+          (string/ends-with? lower-path ".cljc")
+          (string/ends-with? lower-path ".bb")
+          (string/ends-with? lower-path ".lpy")
+          (string/ends-with? lower-path ".edn")
+          (babashka-shebang? file-path)))))
 
 (defn cljfmt-should-fix?
   "Check if file needs formatting using cljfmt check.
