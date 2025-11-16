@@ -380,6 +380,44 @@
     (catch java.net.SocketTimeoutException _
       nil)))
 
+(defn detect-cljs-mode
+  "Detect if the nREPL session is in CLJS mode by evaluating *clojurescript-version*.
+   Returns true if in CLJS mode, false if in CLJ mode.
+   Must use the same session to get accurate mode detection."
+  [out in session]
+  (let [cljs-check-id (next-id)]
+    (write-bencode-msg out {"op" "eval"
+                            "code" "*clojurescript-version*"
+                            "id" cljs-check-id
+                            "session" session})
+    ;; Read all responses until we get "done" status
+    (loop [has-value? false]
+      (if-let [resp (read-reply in session cljs-check-id)]
+        (let [has-val (or has-value? (some? (:value resp)))]
+          (if (some #{"done"} (:status resp))
+            has-val
+            (recur has-val)))
+        false))))
+
+(defn format-divider
+  "Format the output divider with namespace, env-type, and mode information.
+   For shadow-cljs, always shows cljs-mode or clj-mode.
+   For other env-types, omits mode indicator."
+  [ns-str env-type cljs-mode?]
+  (let [env-name (case env-type
+                   :shadow "shadow"
+                   :clj "clj"
+                   :bb "bb"
+                   :basilisp "basilisp"
+                   :scittle "scittle"
+                   :unknown "unknown"
+                   (name env-type))
+        mode-str (when (= env-type :shadow)
+                   (if cljs-mode? "cljs-mode" "clj-mode"))
+        parts (cond-> [ns-str env-name]
+                mode-str (conj mode-str))]
+    (str "*==== " (str/join " | " parts) " ====*")))
+
 (defn eval-expr-with-timeout
   "Evaluate expression with timeout support and interrupt handling.
   If timeout-ms is exceeded, sends an interrupt to the nREPL server.
@@ -414,23 +452,27 @@
                                           :env-type env-type}]
                         (spit-nrepl-session session-data host port)
                         new-session))
+            ;; Extract env-type from session data
+            env-type (or (:env-type existing-session-data)
+                         :unknown)
+            ;; Detect CLJS mode only for shadow-cljs environments
+            ;; (only shadow can switch between CLJ and CLJS modes)
+            cljs-mode? (when (= env-type :shadow)
+                         (detect-cljs-mode out in session))
             eval-id (next-id)
             deadline (+ (now-ms) timeout-ms)
             _ (write-bencode-msg out {"op" "eval"
                                       "code" fixed-expr
                                       "id" eval-id
                                       "session" session})]
-        (loop [m {:vals [] :responses [] :interrupted false :ns-printed false}]
+        (loop [m {:vals []
+                  :responses []
+                  :interrupted false}]
           (let [remaining (max 0 (- deadline (now-ms)))]
             (if (pos? remaining)
               ;; Wait up to 250ms at a time for responses so we can honor timeout
               (if-let [resp (try-read-msg s in (min remaining 250))]
                 (do
-                  ;; Print namespace header on first response with :ns
-                  (when (and (:ns resp) (not (:ns-printed m)))
-                    (binding [*out* *err*]
-                      (println (str ";; nREPL Namespace: " (:ns resp)))
-                      (println)))
                   ;; Handle output
                   (when-let [out-str (:out resp)]
                     (print out-str)
@@ -441,14 +483,12 @@
                       (flush)))
                   (when-let [value (:value resp)]
                     (println (str "=> " value))
-                    (println "*============================*")
+                    (println (format-divider (:ns resp) env-type cljs-mode?))
                     (flush))
                   ;; Collect values
                   (let [m (cond-> (update m :responses conj resp)
                             (:value resp)
-                            (update :vals conj (:value resp))
-                            (:ns resp)
-                            (assoc :ns-printed true))]
+                            (update :vals conj (:value resp)))]
                     ;; Stop when server says we're done
                     (if (some #{"done"} (:status resp))
                       m
