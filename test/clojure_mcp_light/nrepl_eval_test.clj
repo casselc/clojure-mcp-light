@@ -1,23 +1,24 @@
 (ns clojure-mcp-light.nrepl-eval-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure-mcp-light.nrepl-eval :as ne]
+            [clojure-mcp-light.nrepl-client :as nc]
             [clojure.java.io :as io]
             [clojure.string]))
 
 (deftest bytes->str-test
   (testing "converts bytes to string"
-    (is (= "hello" (ne/bytes->str (.getBytes "hello"))))
-    (is (= "test" (ne/bytes->str "test")))))
+    (is (= "hello" (nc/bytes->str (.getBytes "hello"))))
+    (is (= "test" (nc/bytes->str "test")))))
 
 (deftest coerce-long-test
   (testing "converts string to long"
-    (is (= 7888 (ne/coerce-long "7888")))
-    (is (= 1234 (ne/coerce-long 1234)))))
+    (is (= 7888 (nc/coerce-long "7888")))
+    (is (= 1234 (nc/coerce-long 1234)))))
 
 (deftest next-id-test
   (testing "generates unique IDs"
-    (let [id1 (ne/next-id)
-          id2 (ne/next-id)]
+    (let [id1 (nc/next-id)
+          id2 (nc/next-id)]
       (is (string? id1))
       (is (string? id2))
       (is (not= id1 id2)))))
@@ -32,50 +33,50 @@
         ;; Create a test session file
         (spit test-session-file (str test-session-id "\n") :encoding "UTF-8")
         ;; Test reading it
-        (let [result (with-redefs [ne/slurp-nrepl-session
+        (let [result (with-redefs [nc/slurp-nrepl-session
                                    (fn [_ _]
                                      (try
                                        (when (.exists (io/file test-session-file))
                                          (clojure.string/trim (slurp test-session-file :encoding "UTF-8")))
                                        (catch Exception _
                                          nil)))]
-                       (ne/slurp-nrepl-session test-host test-port))]
+                       (nc/slurp-nrepl-session test-host test-port))]
           (is (= test-session-id result)))
         (finally
           ;; Clean up
           (io/delete-file test-session-file true)))))
 
   (testing "returns nil when file doesn't exist"
-    (let [result (with-redefs [ne/slurp-nrepl-session
+    (let [result (with-redefs [nc/slurp-nrepl-session
                                (fn [_ _]
                                  (try
                                    (when (.exists (io/file ".nrepl-session-nonexistent"))
                                      (clojure.string/trim (slurp ".nrepl-session-nonexistent" :encoding "UTF-8")))
                                    (catch Exception _
                                      nil)))]
-                   (ne/slurp-nrepl-session "localhost" 7888))]
+                   (nc/slurp-nrepl-session "localhost" 7888))]
       (is (nil? result))))
 
   (testing "returns nil on read error"
-    (let [result (ne/slurp-nrepl-session "localhost" 7888)]
+    (let [result (nc/slurp-nrepl-session "localhost" 7888)]
       ;; Without a file, should return nil
-      (is (or (nil? result) (string? result))))))
+      (is (or (nil? result) (string? result) (map? result))))))
 
 (deftest spit-nrepl-session-test
   (testing "writes session ID to per-target session file"
     (let [test-session-file ".nrepl-session-test"
-          test-session-id "test-session-67890"
+          test-session-data {:session-id "test-session-67890"}
           test-host "localhost"
           test-port 7888]
       (try
         ;; Write session ID
-        (with-redefs [ne/spit-nrepl-session
-                      (fn [session-id _ _]
-                        (spit test-session-file (str session-id "\n") :encoding "UTF-8"))]
-          (ne/spit-nrepl-session test-session-id test-host test-port))
+        (with-redefs [nc/spit-nrepl-session
+                      (fn [session-data _ _]
+                        (spit test-session-file (str (:session-id session-data) "\n") :encoding "UTF-8"))]
+          (nc/spit-nrepl-session test-session-data test-host test-port))
         ;; Verify it was written correctly
         (let [content (clojure.string/trim (slurp test-session-file :encoding "UTF-8"))]
-          (is (= test-session-id content)))
+          (is (= (:session-id test-session-data) content)))
         (finally
           ;; Clean up
           (io/delete-file test-session-file true))))))
@@ -90,12 +91,12 @@
         (spit test-session-file "test-session" :encoding "UTF-8")
         (is (.exists (io/file test-session-file)))
         ;; Delete it
-        (with-redefs [ne/delete-nrepl-session
+        (with-redefs [nc/delete-nrepl-session
                       (fn [_ _]
                         (let [f (io/file test-session-file)]
                           (when (.exists f)
                             (.delete f))))]
-          (ne/delete-nrepl-session test-host test-port))
+          (nc/delete-nrepl-session test-host test-port))
         ;; Verify it's gone
         (is (not (.exists (io/file test-session-file))))
         (finally
@@ -103,13 +104,13 @@
           (io/delete-file test-session-file true)))))
 
   (testing "does nothing when file doesn't exist"
-    (with-redefs [ne/delete-nrepl-session
+    (with-redefs [nc/delete-nrepl-session
                   (fn [_ _]
                     (let [f (io/file ".nrepl-session-nonexistent")]
                       (when (.exists f)
                         (.delete f))))]
       ;; Should not throw an error
-      (is (nil? (ne/delete-nrepl-session "localhost" 7888))))))
+      (is (nil? (nc/delete-nrepl-session "localhost" 7888))))))
 
 (deftest get-host-test
   (testing "gets host from options"
@@ -122,7 +123,7 @@
   (testing "converts byte values to strings in message"
     (let [msg {"status" [(.getBytes "done")]
                "value" "42"}
-          result (ne/read-msg msg)]
+          result (nc/read-msg msg)]
       (is (map? result))
       (is (= "done" (first (:status result))))
       (is (= "42" (:value result))))))

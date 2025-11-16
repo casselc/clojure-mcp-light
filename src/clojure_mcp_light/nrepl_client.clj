@@ -1,0 +1,296 @@
+(ns clojure-mcp-light.nrepl-client
+  "nREPL client library based on lazy sequences of messages"
+  (:require [babashka.fs :as fs]
+            [bencode.core :as b]
+            [clojure.edn :as edn]
+            [clojure-mcp-light.tmp :as tmp]))
+
+;; ============================================================================
+;; Message encoding/decoding
+;; ============================================================================
+
+(defn bytes->str [x]
+  (if (bytes? x) (String. (bytes x))
+      (str x)))
+
+(defn read-msg
+  "Decode a raw bencode message map into a Clojure map with keyword keys.
+  Handles byte conversion for values, :status, and :sessions fields."
+  [msg]
+  (let [res (zipmap (map keyword (keys msg))
+                    (map #(if (bytes? %)
+                            (String. (bytes %))
+                            %)
+                         (vals msg)))
+        res (if-let [status (:status res)]
+              (assoc res :status (mapv bytes->str status))
+              res)
+        res (if-let [status (:sessions res)]
+              (assoc res :sessions (mapv bytes->str status))
+              res)]
+    res))
+
+(defn coerce-long [x]
+  (if (string? x) (Long/parseLong x) x))
+
+(defn next-id []
+  (str (java.util.UUID/randomUUID)))
+
+(defn write-bencode-msg
+  "Write bencode message to output stream and flush"
+  [out msg]
+  (b/write-bencode out msg)
+  (.flush out))
+
+;; ============================================================================
+;; Lazy sequence API
+;; ============================================================================
+
+(defn message-seq
+  "Create lazy sequence of raw bencode messages from input stream.
+  Continues until EOF or error. Returns nils after stream ends."
+  [in]
+  (repeatedly
+   #(try
+      (b/read-bencode in)
+      (catch Exception _ nil))))
+
+(defn decode-messages
+  "Map raw bencode message sequence through decoder.
+  Stops at first nil (EOF/error)."
+  [msg-seq]
+  (map read-msg (take-while some? msg-seq)))
+
+(defn filter-id
+  "Filter messages by message id."
+  [id msg-seq]
+  (filter #(= (:id %) id) msg-seq))
+
+(defn filter-session
+  "Filter messages by session id."
+  [session-id msg-seq]
+  (filter #(= (:session %) session-id) msg-seq))
+
+(defn take-upto
+  "Take elements from coll up to and including the first element
+  where (pred element) is truthy."
+  [pred coll]
+  (lazy-seq
+   (when-let [s (seq coll)]
+     (let [x (first s)]
+       (cons x (when-not (pred x)
+                 (take-upto pred (rest s))))))))
+
+(defn take-until-done
+  "Take messages up to and including first with 'done' status."
+  [msg-seq]
+  (take-upto #(some #{"done"} (:status %)) msg-seq))
+
+;; ============================================================================
+;; Socket and connection management
+;; ============================================================================
+
+(defn create-socket
+  "Create and connect a socket with timeout."
+  [host port timeout-ms]
+  (doto (java.net.Socket.)
+    (.connect (java.net.InetSocketAddress. host (coerce-long port)) timeout-ms)
+    (.setSoTimeout timeout-ms)))
+
+(defn with-socket
+  "Execute function f with connected socket and streams.
+  f receives [socket out in] as arguments."
+  [host port timeout-ms f]
+  (with-open [s (create-socket host port timeout-ms)]
+    (let [out (java.io.BufferedOutputStream. (.getOutputStream s))
+          in (java.io.PushbackInputStream. (.getInputStream s))]
+      (f s out in))))
+
+;; ============================================================================
+;; Connection map utilities
+;; ============================================================================
+
+(defn make-connection
+  "Create a connection map from socket and streams.
+  Connection map: {:input :output :host :port :session-id :nrepl-env :socket}"
+  [socket out in host port & {:keys [session-id nrepl-env]}]
+  {:socket socket
+   :input in
+   :output out
+   :host host
+   :port port
+   :session-id session-id
+   :nrepl-env nrepl-env})
+
+;; ============================================================================
+;; Helper functions for collecting messages
+;; ============================================================================
+
+(defn messages-for-id
+  "Send operation and collect all messages for the given id.
+  Returns realized vector of all messages up to 'done' status.
+
+  conn: connection map with :input, :output, and optionally :session-id
+  op-map: operation map (e.g., {'op' 'describe'})
+
+  If conn has :session-id, it will be included in the request."
+  [conn op-map]
+  (let [{:keys [input output session-id]} conn
+        id (next-id)
+        msg (cond-> (assoc op-map "id" id)
+              session-id (assoc "session" session-id))
+        _ (write-bencode-msg output msg)
+        msgs (->> (message-seq input)
+                  (decode-messages)
+                  (filter-id id)
+                  (take-until-done)
+                  (doall))]
+    msgs))
+
+(defn merge-response
+  "Merge multiple nREPL response messages into a single result map.
+
+  Combines:
+  - :value - last value (or vector of all values if multiple)
+  - :values - vector of all values
+  - :out - concatenated stdout
+  - :err - concatenated stderr
+  - :status - set of all status values
+  - :ns - last namespace
+  - All other fields from messages (last value wins)"
+  [messages]
+  (reduce
+   (fn [acc msg]
+     (-> acc
+         ;; First merge all fields from msg (last value wins for non-special keys)
+         (merge (dissoc msg :value :out :err :status :values))
+         ;; Then handle special accumulation/concatenation cases
+         (cond->
+          (:value msg) (-> (assoc :value (:value msg))
+                           (update :values (fnil conj []) (:value msg)))
+          (:out msg) (update :out (fnil str "") (:out msg))
+          (:err msg) (update :err (fnil str "") (:err msg))
+          (:status msg) (update :status (fnil into #{}) (:status msg)))))
+   {}
+   messages))
+
+(defn send-op
+  "Send operation and return merged response.
+
+  conn: connection map
+  op-map: operation map
+
+  Returns merged response map with all accumulated values."
+  [conn op-map]
+  (merge-response (messages-for-id conn op-map)))
+
+;; ============================================================================
+;; Session file I/O
+;; ============================================================================
+
+(defn slurp-nrepl-session
+  "Read session data from nrepl session file for given host and port.
+  Returns map with :session-id, :env-type, :host, and :port, or nil if file doesn't exist or on error."
+  [host port]
+  (try
+    (let [ctx {}
+          session-file (tmp/nrepl-target-file ctx {:host host :port port})]
+      (when (fs/exists? session-file)
+        (edn/read-string (slurp session-file :encoding "UTF-8"))))
+    (catch Exception _
+      nil)))
+
+(defn spit-nrepl-session
+  "Write session data to nrepl session file for given host and port.
+  Takes a map with :session-id and optionally :env-type. Host and port are
+  added to the session data for validation."
+  [session-data host port]
+  (let [ctx {}
+        session-file (tmp/nrepl-target-file ctx {:host host :port port})
+        full-data (assoc session-data :host host :port port)]
+    ;; Ensure parent directories exist
+    (when-let [parent (fs/parent session-file)]
+      (fs/create-dirs parent))
+    (spit session-file (str (pr-str full-data) "\n") :encoding "UTF-8")))
+
+(defn delete-nrepl-session
+  "Delete nrepl session file for given host and port if it exists."
+  [host port]
+  (let [ctx {}
+        session-file (tmp/nrepl-target-file ctx {:host host :port port})]
+    (fs/delete-if-exists session-file)))
+
+;; ============================================================================
+;; Session validation
+;; ============================================================================
+
+(defn validate-session-on-socket
+  "Validate session ID on an open socket by checking ls-sessions.
+   Returns the session-id if valid, nil otherwise."
+  [out in session-id]
+  (when session-id
+    (let [id (next-id)
+          _ (write-bencode-msg out {"op" "ls-sessions" "id" id})
+          response (read-msg (b/read-bencode in))
+          active-sessions (:sessions response)]
+      (when (some #{session-id} active-sessions)
+        session-id))))
+
+(defn get-active-sessions
+  "Get list of active session IDs from nREPL server.
+   Returns nil if unable to connect or on error.
+   Uses a 500ms timeout for connection and read operations."
+  [host port]
+  (try
+    (with-socket host port 500
+      (fn [_socket out in]
+        (let [id (next-id)
+              _ (write-bencode-msg out {"op" "ls-sessions" "id" id})
+              response (read-msg (b/read-bencode in))]
+          (:sessions response))))
+    (catch Exception _
+      nil)))
+
+(defn validate-session
+  "Check if session-id is still valid on the nREPL server.
+   Returns the session-id if valid, nil otherwise.
+   If invalid, deletes the session file."
+  [session-id host port]
+  (when session-id
+    (if-let [active-sessions (get-active-sessions host port)]
+      (if (some #{session-id} active-sessions)
+        session-id
+        (do
+          (delete-nrepl-session host port)
+          nil))
+      ;; If we can't check (server down?), assume session is valid
+      session-id)))
+
+;; ============================================================================
+;; Basic nREPL operations
+;; ============================================================================
+
+(defn describe-nrepl
+  "Get nREPL server description including versions and supported ops.
+   Returns description map or nil on error."
+  [host port]
+  (try
+    (with-socket host port 500
+      (fn [socket out in]
+        (let [conn (make-connection socket out in host port)]
+          (send-op conn {"op" "describe"}))))
+    (catch Exception _
+      nil)))
+
+(defn eval-nrepl
+  "Evaluate code on nREPL server and return the value.
+   Returns the evaluated value as a string, or nil on error."
+  [host port code]
+  (try
+    (with-socket host port 500
+      (fn [socket out in]
+        (let [conn (make-connection socket out in host port)
+              response (send-op conn {"op" "eval" "code" code})]
+          (:value response))))
+    (catch Exception _
+      nil)))

@@ -2,159 +2,15 @@
   "nREPL client implementation with automatic delimiter repair and timeout handling"
   (:require [babashka.fs :as fs]
             [bencode.core :as b]
-            [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure-mcp-light.delimiter-repair :refer [fix-delimiters]]
+            [clojure-mcp-light.nrepl-client :as nc]
             [clojure-mcp-light.tmp :as tmp]))
 
 ;; ============================================================================
-;; nREPL client implementation
+;; High-level nREPL operations (using nrepl-client)
 ;; ============================================================================
-
-(defn bytes->str [x]
-  (if (bytes? x) (String. (bytes x))
-      (str x)))
-
-(defn read-msg [msg]
-  (let [res (zipmap (map keyword (keys msg))
-                    (map #(if (bytes? %)
-                            (String. (bytes %))
-                            %)
-                         (vals msg)))
-        res (if-let [status (:status res)]
-              (assoc res :status (mapv bytes->str status))
-              res)
-        res (if-let [status (:sessions res)]
-              (assoc res :sessions (mapv bytes->str status))
-              res)]
-    res))
-
-(defn read-reply [in session id]
-  (loop []
-    (if-let [raw (try (b/read-bencode in)
-                      (catch Exception _ nil))]
-      (let [msg (read-msg raw)]
-        (if (and (= (:session msg) session)
-                 (= (:id msg) id))
-          msg
-          (recur)))
-      {:status ["eof"]})))
-
-(defn coerce-long [x]
-  (if (string? x) (Long/parseLong x) x))
-
-(defn next-id []
-  (str (java.util.UUID/randomUUID)))
-
-(defn write-bencode-msg
-  "Write bencode message to output stream and flush"
-  [out msg]
-  (b/write-bencode out msg)
-  (.flush out))
-
-;; Session file I/O utilities
-
-(defn slurp-nrepl-session
-  "Read session data from nrepl session file for given host and port.
-  Returns map with :session-id, :env-type, :host, and :port, or nil if file doesn't exist or on error."
-  [host port]
-  (try
-    (let [ctx {}
-          session-file (tmp/nrepl-target-file ctx {:host host :port port})]
-      (when (fs/exists? session-file)
-        (edn/read-string (slurp session-file :encoding "UTF-8"))))
-    (catch Exception _
-      nil)))
-
-(defn spit-nrepl-session
-  "Write session data to nrepl session file for given host and port.
-  Takes a map with :session-id and optionally :env-type. Host and port are
-  added to the session data for validation."
-  [session-data host port]
-  (let [ctx {}
-        session-file (tmp/nrepl-target-file ctx {:host host :port port})
-        full-data (assoc session-data :host host :port port)]
-    ;; Ensure parent directories exist
-    (when-let [parent (fs/parent session-file)]
-      (fs/create-dirs parent))
-    (spit session-file (str (pr-str full-data) "\n") :encoding "UTF-8")))
-
-(defn delete-nrepl-session
-  "Delete nrepl session file for given host and port if it exists."
-  [host port]
-  (let [ctx {}
-        session-file (tmp/nrepl-target-file ctx {:host host :port port})]
-    (fs/delete-if-exists session-file)))
-
-;; Session validation utilities
-
-(defn validate-session-on-socket
-  "Validate session ID on an open socket by checking ls-sessions.
-   Returns the session-id if valid, nil otherwise."
-  [out in session-id]
-  (when session-id
-    (let [id (next-id)
-          _ (write-bencode-msg out {"op" "ls-sessions" "id" id})
-          response (read-msg (b/read-bencode in))
-          active-sessions (:sessions response)]
-      (when (some #{session-id} active-sessions)
-        session-id))))
-
-(defn nrepl-op
-  "Send an nREPL operation and get response.
-   Returns response map or nil on error.
-   Uses a 500ms timeout for connection and read operations."
-  [host port op-map]
-  (try
-    (with-open [s (java.net.Socket.)]
-      (.connect s (java.net.InetSocketAddress. (or host "localhost") (coerce-long port)) 500)
-      (.setSoTimeout s 500)
-      (let [out (java.io.BufferedOutputStream. (.getOutputStream s))
-            in (java.io.PushbackInputStream. (.getInputStream s))
-            id (next-id)
-            msg (assoc op-map "id" id)
-            _ (write-bencode-msg out msg)
-            response (read-msg (b/read-bencode in))]
-        response))
-    (catch Exception _
-      nil)))
-
-(defn describe-nrepl
-  "Get nREPL server description including versions and supported ops.
-   Returns description map or nil on error."
-  [host port]
-  (nrepl-op host port {"op" "describe"}))
-
-(defn eval-nrepl
-  "Evaluate code on nREPL server and return the value.
-   Returns the evaluated value as a string, or nil on error."
-  [host port code]
-  (when-let [response (nrepl-op host port {"op" "eval" "code" code})]
-    (:value response)))
-
-(defn get-active-sessions
-  "Get list of active session IDs from nREPL server.
-   Returns nil if unable to connect or on error.
-   Uses a 500ms timeout for connection and read operations."
-  [host port]
-  (when-let [response (nrepl-op host port {"op" "ls-sessions"})]
-    (:sessions response)))
-
-(defn validate-session
-  "Check if session-id is still valid on the nREPL server.
-   Returns the session-id if valid, nil otherwise.
-   If invalid, deletes the session file."
-  [session-id host port]
-  (when session-id
-    (if-let [active-sessions (get-active-sessions host port)]
-      (if (some #{session-id} active-sessions)
-        session-id
-        (do
-          (delete-nrepl-session host port)
-          nil))
-      ;; If we can't check (server down?), assume session is valid
-      session-id)))
 
 (defn validate-stored-connection
   "Validate a stored nREPL connection by checking if server is reachable
@@ -174,7 +30,7 @@
    server restarts. Use --reset-session to explicitly clean up sessions."
   [{:keys [host port session-id env-type]}]
   (try
-    (if-let [active-sessions (get-active-sessions host port)]
+    (if-let [active-sessions (nc/get-active-sessions host port)]
       (if (some #{session-id} active-sessions)
         {:status :active
          :host host
@@ -233,8 +89,14 @@
   "Check if nREPL server is running shadow-cljs.
    Returns true if evaluating code without a session results in :ns \"shadow.user\", false otherwise."
   [host port]
-  (when-let [response (nrepl-op host port {"op" "eval" "code" "1"})]
-    (= "shadow.user" (:ns response))))
+  (try
+    (nc/with-socket host port 500
+      (fn [socket out in]
+        (let [conn (nc/make-connection socket out in host port)
+              response (nc/send-op conn {"op" "eval" "code" "1"})]
+          (= "shadow.user" (:ns response)))))
+    (catch Exception _
+      false)))
 
 (defmulti fetch-project-directory-exp
   "Returns an expression (string) to evaluate for getting the project directory.
@@ -326,18 +188,18 @@
         ;; Validate each port and gather info
         results (for [port all-ports]
                   (let [source (if (= port port-file-port) :nrepl-port-file :lsof)
-                        sessions (get-active-sessions "localhost" port)
+                        sessions (nc/get-active-sessions "localhost" port)
                         valid (some? sessions)]
                     (if valid
                       ;; Valid nREPL - get env type and project dir
-                      (let [describe-resp (describe-nrepl "localhost" port)
+                      (let [describe-resp (nc/describe-nrepl "localhost" port)
                             base-env-type (detect-nrepl-env-type describe-resp)
                             ;; Check for shadow-cljs (overrides base env-type)
                             is-shadow? (detect-shadow-cljs? "localhost" port)
                             env-type (if is-shadow? :shadow base-env-type)
                             dir-expr (fetch-project-directory-exp env-type)
                             project-dir (when dir-expr
-                                          (eval-nrepl "localhost" port dir-expr))
+                                          (nc/eval-nrepl "localhost" port dir-expr))
                             ;; Strip quotes if present (e.g., "\"/path\"" -> "/path")
                             project-dir (when project-dir
                                           (str/replace project-dir #"^\"|\"$" ""))
@@ -376,7 +238,7 @@
   [socket in timeout-ms]
   (try
     (.setSoTimeout socket timeout-ms)
-    (read-msg (b/read-bencode in))
+    (nc/read-msg (b/read-bencode in))
     (catch java.net.SocketTimeoutException _
       nil)))
 
@@ -385,19 +247,21 @@
    Returns true if in CLJS mode, false if in CLJ mode.
    Must use the same session to get accurate mode detection."
   [out in session]
-  (let [cljs-check-id (next-id)]
-    (write-bencode-msg out {"op" "eval"
-                            "code" "*clojurescript-version*"
-                            "id" cljs-check-id
-                            "session" session})
+  (let [cljs-check-id (nc/next-id)]
+    (nc/write-bencode-msg out {"op" "eval"
+                               "code" "*clojurescript-version*"
+                               "id" cljs-check-id
+                               "session" session})
     ;; Read all responses until we get "done" status
     (loop [has-value? false]
-      (if-let [resp (read-reply in session cljs-check-id)]
-        (let [has-val (or has-value? (some? (:value resp)))]
-          (if (some #{"done"} (:status resp))
-            has-val
-            (recur has-val)))
-        false))))
+      (when-let [raw (try (b/read-bencode in) (catch Exception _ nil))]
+        (let [resp (nc/read-msg raw)]
+          (when (and (= (:session resp) session)
+                     (= (:id resp) cljs-check-id))
+            (let [has-val (or has-value? (some? (:value resp)))]
+              (if (some #{"done"} (:status resp))
+                has-val
+                (recur has-val)))))))))
 
 (defn format-divider
   "Format the output divider with namespace, env-type, and mode information.
@@ -427,44 +291,45 @@
   [{:keys [host port expr timeout-ms] :or {timeout-ms 120000}}]
   (let [fixed-expr (or (fix-delimiters expr) expr)
         host (or host "localhost")]
-    (with-open [s (java.net.Socket. host (coerce-long port))]
+    (with-open [s (java.net.Socket. host (nc/coerce-long port))]
       (let [out (java.io.BufferedOutputStream. (.getOutputStream s))
             in (java.io.PushbackInputStream. (.getInputStream s))
             ;; Try to reuse existing session or create new one
-            existing-session-data (slurp-nrepl-session host port)
+            existing-session-data (nc/slurp-nrepl-session host port)
             existing-session-id (:session-id existing-session-data)
             ;; Validate session on same socket
-            validated-session (validate-session-on-socket out in existing-session-id)
+            validated-session (nc/validate-session-on-socket out in existing-session-id)
             session (if validated-session
                       validated-session
                       (let [_ (when (and existing-session-id (not validated-session))
-                                (delete-nrepl-session host port))
-                            clone-id (next-id)
-                            _ (write-bencode-msg out {"op" "clone" "id" clone-id})
-                            {new-session :new-session} (read-msg (b/read-bencode in))
+                                (nc/delete-nrepl-session host port))
+                            clone-id (nc/next-id)
+                            _ (nc/write-bencode-msg out {"op" "clone" "id" clone-id})
+                            {new-session :new-session} (nc/read-msg (b/read-bencode in))
                             ;; Detect env-type if not already stored
                             env-type (or (:env-type existing-session-data)
-                                         (let [describe-resp (nrepl-op host port {"op" "describe"})
+                                         (let [describe-resp (nc/describe-nrepl host port)
                                                base-env (detect-nrepl-env-type describe-resp)
                                                is-shadow? (detect-shadow-cljs? host port)]
                                            (if is-shadow? :shadow base-env)))
                             session-data {:session-id new-session
                                           :env-type env-type}]
-                        (spit-nrepl-session session-data host port)
+                        (nc/spit-nrepl-session session-data host port)
                         new-session))
-            ;; Extract env-type from session data
-            env-type (or (:env-type existing-session-data)
+            ;; Re-read session data to get current env-type (may have been updated above)
+            current-session-data (nc/slurp-nrepl-session host port)
+            env-type (or (:env-type current-session-data)
                          :unknown)
             ;; Detect CLJS mode only for shadow-cljs environments
             ;; (only shadow can switch between CLJ and CLJS modes)
             cljs-mode? (when (= env-type :shadow)
                          (detect-cljs-mode out in session))
-            eval-id (next-id)
+            eval-id (nc/next-id)
             deadline (+ (now-ms) timeout-ms)
-            _ (write-bencode-msg out {"op" "eval"
-                                      "code" fixed-expr
-                                      "id" eval-id
-                                      "session" session})]
+            _ (nc/write-bencode-msg out {"op" "eval"
+                                         "code" fixed-expr
+                                         "id" eval-id
+                                         "session" session})]
         (loop [m {:vals []
                   :responses []
                   :interrupted false}]
@@ -498,9 +363,9 @@
               ;; Timeout hit — send interrupt
               (do
                 (println "\n⚠️  Timeout hit, sending nREPL :interrupt …")
-                (write-bencode-msg out {"op" "interrupt"
-                                        "session" session
-                                        "interrupt-id" eval-id})
+                (nc/write-bencode-msg out {"op" "interrupt"
+                                           "session" session
+                                           "interrupt-id" eval-id})
                 ;; Read a few responses to observe the interruption
                 (loop [i 0
                        result (assoc m :interrupted true)]
@@ -701,7 +566,7 @@
   [options arguments]
   (if-let [port (:port options)]
     (let [host (get-host options)]
-      (delete-nrepl-session host port)
+      (nc/delete-nrepl-session host port)
       (println (str "Session reset for " host ":" port))
       ;; If code is provided, continue to evaluate it with new session
       (when-let [expr (get-code arguments)]
