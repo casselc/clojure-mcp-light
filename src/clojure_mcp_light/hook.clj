@@ -8,7 +8,6 @@
             [clojure.tools.cli :refer [parse-opts]]
             [clojure-mcp-light.delimiter-repair
              :refer [delimiter-error? fix-delimiters actual-delimiter-error?]]
-            [clojure-mcp-light.edit-validator :as edit-validator]
             [clojure-mcp-light.stats :as stats]
             [clojure-mcp-light.tmp :as tmp]
             [taoensso.timbre :as timbre]))
@@ -238,56 +237,6 @@
 
 (defmethod process-hook :default [_] nil)
 
-(defn validate-and-log-edit
-  "Validate an edit operation and log the result.
-
-  Reads file content, validates the edit with sliding indentation and line ending
-  normalization, and logs the appropriate stats event.
-
-  Args:
-    file-path - Path to the file being edited
-    old-string - Text to be replaced
-    new-string - Replacement text
-    replace-all - Boolean flag for replace-all behavior"
-  [file-path old-string new-string replace-all]
-  (when (fs/exists? file-path)
-    (let [file-content (slurp file-path :encoding "UTF-8")
-          validation (edit-validator/validate-sliding-edit
-                      file-content
-                      old-string
-                      new-string
-                      (boolean replace-all))
-          offset (:indentation-offset validation)]
-      (timbre/debug "  Edit validation:" validation)
-
-      ;; Log validation result
-      (if (:valid? validation)
-        (let [normalized? (:normalized? validation)]
-          (cond
-            ;; Match with sliding (and possibly normalization)
-            (and offset (not (zero? offset)))
-            (stats/log-edit-event! :edit-match-success-sliding "PreToolUse:Edit" file-path
-                                   :match-count (:match-count validation)
-                                   :indentation-offset offset
-                                   :normalized normalized?)
-
-            ;; Exact match with normalization only
-            normalized?
-            (stats/log-edit-event! :edit-match-success-normalized "PreToolUse:Edit" file-path
-                                   :match-count (:match-count validation)
-                                   :indentation-offset 0
-                                   :normalized true)
-
-            ;; Exact match (no adjustments)
-            :else
-            (stats/log-edit-event! :edit-match-success "PreToolUse:Edit" file-path
-                                   :match-count (:match-count validation)
-                                   :indentation-offset 0
-                                   :normalized false)))
-        (stats/log-edit-event! :edit-match-failed "PreToolUse:Edit" file-path
-                               :match-count (:match-count validation)
-                               :reason (:reason validation))))))
-
 (defmethod process-hook ["PreToolUse" "Write"]
   [{:keys [tool_input]}]
   (let [{:keys [file_path content]} tool_input]
@@ -322,25 +271,9 @@
 
 (defmethod process-hook ["PreToolUse" "Edit"]
   [{:keys [tool_input session_id]}]
-  (let [{:keys [file_path old_string new_string replace_all]} tool_input]
+  (let [{:keys [file_path]} tool_input]
     (when (clojure-file? file_path)
       (timbre/debug "PreEdit: clojure" file_path)
-
-      ;; Log edit submission and validate
-      (stats/log-edit-event! :edit-submitted "PreToolUse:Edit" file_path)
-
-      ;; Validate edit and log results
-      ;; this is only for tracking accuracy of submitted edits
-      ;; this will be helpful in making future descisions about
-      ;; how to handle edits
-      ;; most importantly: Is it worth it to try clj-rewrite edits
-      ;; at all anymore?
-      (when stats/*enable-stats*
-        (try
-          (validate-and-log-edit file_path old_string new_string replace_all)
-          (catch Exception e
-            (timbre/error "  Error: Validate Edit failed" (.getMessage e))
-            nil)))
 
       ;; Only create backup if revert is enabled
       (when *enable-revert*
