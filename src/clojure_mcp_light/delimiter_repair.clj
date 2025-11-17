@@ -3,7 +3,8 @@
   (:require [edamame.core :as e]
             [clojure.java.shell :as shell]
             [cheshire.core :as json]
-            [clojure-mcp-light.stats :as stats]))
+            [clojure-mcp-light.stats :as stats]
+            [parinferish.core :as parinferish]))
 
 (def ^:dynamic *signal-on-bad-parse* true)
 
@@ -50,6 +51,34 @@
   (binding [*signal-on-bad-parse* false]
     (delimiter-error? s)))
 
+(defn parinferish-repair
+  "Attempts to repair delimiter errors using parinferish (pure Clojure).
+   Returns a map with:
+   - :success - boolean indicating if repair was successful
+   - :text - the repaired code (if successful)
+   - :error - error message (if unsuccessful)"
+  [s]
+  (try
+    (let [repaired (parinferish/flatten
+                    (parinferish/parse s {:mode :indent}))]
+      {:success true
+       :text repaired
+       :error nil})
+    (catch Exception e
+      {:success false
+       :error (.getMessage e)})))
+
+(def parinfer-rust-available?
+  "Check if parinfer-rust binary is available on PATH.
+   Result is memoized to avoid repeated shell calls."
+  (memoize
+   (fn []
+     (try
+       (let [result (shell/sh "which" "parinfer-rust")]
+         (zero? (:exit result)))
+       (catch Exception _
+         false)))))
+
 (defn parinfer-repair
   "Attempts to repair delimiter errors using parinfer-rust.
    Returns a map with:
@@ -70,13 +99,25 @@
           {:success false}))
       {:success false})))
 
+(defn repair-delimiters
+  "Unified delimiter repair function that automatically selects the best available backend.
+   Prefers parinfer-rust (external tool) when available, falls back to parinferish (pure Clojure).
+   Returns a map with:
+   - :success - boolean indicating if repair was successful
+   - :text - the repaired code (if successful)
+   - :error - error message (if unsuccessful)"
+  [s]
+  (if (parinfer-rust-available?)
+    (parinfer-repair s)
+    (parinferish-repair s)))
+
 (defn fix-delimiters
   "Takes a Clojure string and attempts to fix delimiter errors.
    Returns the repaired string if successful, false otherwise.
    If no delimiter errors exist, returns the original string."
   [s]
   (if (delimiter-error? s)
-    (let [{:keys [text success]} (parinfer-repair s)]
+    (let [{:keys [text success]} (repair-delimiters s)]
       (when (and success text (not (delimiter-error? text)))
         text))
     s))

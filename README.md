@@ -18,13 +18,17 @@ They help solve the two main problems:
 * faulty delimiters in LLM output
 * connecting to a stateful Clojure nREPL
 
-But the main reason you may want to try this approach is to have
-**clean code diffs presented by Claude Code when a file write or edit
-takes place**.
+But the main reason you may want to try this approach is to have an
+unadulterated Claude Code experience that works with Clojure code.
 
-Since this relies on hooks that hook into the default Claude Code
+Since this relies on hooks which work with the default Claude Code
 editing tools the UI is unaffected by integrating this into your
-Claude Code setup.
+Claude Code setup. I.e. you will be able to read and confirm code
+diffs and you will no longer see poorly formatted clojure-mcp tool
+calls.
+
+> You can setup `clojure-mcp-light` once and then edit it any Clojure
+> project with Claude Code with no additional configuration.
 
 These scripts benefit from patterns developed and validated in ClojureMCP.
 
@@ -75,8 +79,10 @@ Clojure-mcp-light provides two main tools:
 
 ## Features
 
-- **Automatic delimiter detection** using edamame parser
-- **Auto-fixing with parinfer-rust** for intelligent delimiter repair
+- **Automatic delimiter error detection** using edamame parser
+- **Intelligent delimiter repair** with automatic backend selection:
+  - Prefers [parinfer-rust](https://github.com/eraserhd/parinfer-rust) when available (faster, battle-tested)
+  - Falls back to [parinferish](https://github.com/oakmac/parinferish) (pure Clojure, no external dependencies)
 - **Write operations**: Detects and fixes delimiter errors before writing files
 - **Edit operations**: Creates backup before edits, auto-fixes after, or restores from backup if unfixable
 - **Optional code formatting**: `--cljfmt` flag enables automatic code formatting with cljfmt after write/edit operations
@@ -89,25 +95,20 @@ Clojure-mcp-light provides two main tools:
 
 - [Babashka](https://github.com/babashka/babashka) - Fast-starting Clojure scripting environment (includes cljfmt)
 - [bbin](https://github.com/babashka/bbin) - Babashka package manager
-- [parinfer-rust](https://github.com/eraserhd/parinfer-rust) - Delimiter inference and fixing
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) - The Claude CLI tool
+
+**Optional:**
+- [parinfer-rust](https://github.com/eraserhd/parinfer-rust) - Delimiter inference and fixing - clojure-mcp-light will use this when its available
 
 ## Installation
 
 ### Install via bbin
 
 1. Install bbin if you haven't already:
-   
+
    See https://github.com/babashka/bbin for more details.
 
-2. Install parinfer-rust (required dependency):
-
-   See https://github.com/eraserhd/parinfer-rust for installation
-
-   The parinfer-rust binary must be available on your PATH
-
-
-3. Install clojure-mcp-light (run both commands):
+2. Install clojure-mcp-light (run both commands):
 
    From GitHub:
    ```bash
@@ -239,7 +240,7 @@ The hook command for automatic delimiter fixing with optional code formatting an
 ### Features
 
 - **Automatic delimiter detection** using edamame parser
-- **Auto-fixing with parinfer-rust** for intelligent delimiter repair
+- **Intelligent delimiter repair** with automatic backend selection (parinfer-rust when available, parinferish fallback)
 - **Optional code formatting** with cljfmt
 - **Configurable file logging** for debugging hook operations
 
@@ -402,7 +403,7 @@ The main command-line tool for evaluating Clojure code via nREPL with automatic 
 ### Features
 
 - **Direct nREPL communication** using bencode protocol
-- **Automatic delimiter repair** before evaluation using parinfer-rust
+- **Automatic delimiter repair** before evaluation (uses parinfer-rust when available, parinferish fallback)
 - **Timeout and interrupt handling** for long-running evaluations
 - **Formatted output** with dividers between results
 - **Server discovery** via `--discover-ports` flag (finds nREPL servers in current directory)

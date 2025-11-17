@@ -37,7 +37,7 @@ EOF
 
 ## Core Modules
 
-**delimiter_repair.clj** - Detects and repairs delimiter errors using edamame parser and parinfer-rust CLI
+**delimiter_repair.clj** - Detects and repairs delimiter errors using edamame parser. Uses parinfer-rust when available, falls back to parinferish (pure Clojure)
 
 **hook.clj** - Intercepts Write/Edit operations to auto-fix delimiter errors. For Write: fixes before writing. For Edit: creates backup, fixes after edit, restores if unfixable. Optional `--cljfmt` flag for formatting. Supports `--stats` for tracking delimiter events.
 
@@ -57,10 +57,10 @@ EOF
 ## Dependencies
 
 External tools:
-- **parinfer-rust** (required) - Must be on PATH
+- **parinfer-rust** (optional, recommended) - Faster delimiter repair when on PATH; falls back to parinferish if not available
 - **cljfmt** (optional) - For `--cljfmt` flag
 - **babashka** - For running scripts
 - **bbin** - For installation
 
-Clojure deps (bb.edn): edamame, cheshire, tools.cli, nrepl/bencode
+Clojure deps (bb.edn): edamame, cheshire, tools.cli, nrepl/bencode, parinferish
 - let's add a short note about using here doc with the bb tool for eval

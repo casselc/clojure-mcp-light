@@ -44,6 +44,50 @@
       (is (contains? result :success))
       (is (contains? result :text)))))
 
+(deftest parinferish-repair-test
+  (testing "returns success map for fixable code"
+    (let [result (dr/parinferish-repair "(def x 1")]
+      (is (map? result))
+      (is (contains? result :success))
+      (is (contains? result :text))
+      (is (true? (:success result)))
+      (is (= "(def x 1)" (:text result)))))
+
+  (testing "handles complex delimiter errors"
+    (let [result (dr/parinferish-repair "(let [x 1\n      y 2\n  (+ x y))")]
+      (is (true? (:success result)))
+      (is (= "(let [x 1\n      y 2]\n  (+ x y))" (:text result)))))
+
+  (testing "handles nested missing delimiters"
+    (let [result (dr/parinferish-repair "(defn baz [x]\n  (let [y (* x 2]\n    (+ y 1)))")]
+      (is (true? (:success result)))
+      (is (false? (dr/delimiter-error? (:text result))))))
+
+  (testing "returns error map on failure"
+    (let [result (dr/parinferish-repair nil)]
+      (is (map? result))
+      (is (contains? result :success))
+      (is (false? (:success result)))
+      (is (contains? result :error)))))
+
+(deftest repair-delimiters-test
+  (testing "returns success map for fixable code"
+    (let [result (dr/repair-delimiters "(def x 1")]
+      (is (map? result))
+      (is (contains? result :success))
+      (is (contains? result :text))
+      (is (true? (:success result)))))
+
+  (testing "works with complex nested errors"
+    (let [result (dr/repair-delimiters "(defn foo [x]\n  (let [y (* x 2]\n    (+ y 1)))")]
+      (is (true? (:success result)))
+      (is (false? (dr/delimiter-error? (:text result))))))
+
+  (testing "returns repaired text that passes delimiter check"
+    (let [result (dr/repair-delimiters "(+ 1 2 3")]
+      (is (true? (:success result)))
+      (is (= "(+ 1 2 3)" (:text result))))))
+
 (deftest delimiter-error-with-function-literals-test
   (testing "does not error on valid function literals"
     (is (false? (dr/delimiter-error? "#(+ % 1)")))
