@@ -247,31 +247,6 @@
 
 ;; High-level convenience operations that create their own socket
 
-(defn describe-nrepl
-  "Get nREPL server description including versions and supported ops.
-   Returns description map or nil on error."
-  [host port]
-  (try
-    (with-socket host port 500
-      (fn [socket out in]
-        (let [conn (make-connection socket out in host port)]
-          (describe-nrepl* conn))))
-    (catch Exception _
-      nil)))
-
-(defn eval-nrepl
-  "Evaluate code on nREPL server and return the value.
-   Returns the evaluated value as a string, or nil on error."
-  [host port code]
-  (try
-    (with-socket host port 500
-      (fn [socket out in]
-        (let [conn (make-connection socket out in host port)
-              response (eval-nrepl* conn code)]
-          (last (:value response)))))
-    (catch Exception _
-      nil)))
-
 (defn ls-sessions
   "Get list of active session IDs from nREPL server.
    Returns nil if unable to connect or on error.

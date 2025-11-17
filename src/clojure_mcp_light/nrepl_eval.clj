@@ -94,18 +94,6 @@
     (catch Exception _
       false)))
 
-(defn detect-shadow-cljs?
-  "Check if nREPL server is running shadow-cljs.
-   Returns true if evaluating code without a session results in :ns \"shadow.user\", false otherwise."
-  [host port]
-  (try
-    (nc/with-socket host port 500
-      (fn [socket out in]
-        (let [conn (nc/make-connection socket out in host port)]
-          (detect-shadow-cljs?* conn))))
-    (catch Exception _
-      false)))
-
 (defmulti fetch-project-directory-exp
   "Returns an expression (string) to evaluate for getting the project directory.
    Dispatches on nrepl-env-type."
@@ -258,7 +246,7 @@
    Must use the same session to get accurate mode detection."
   [conn]
   (try
-    (let [response (nc/eval-nrepl* conn "*clojurescript-version*")]
+    (let [response (nc/eval-nrepl* conn "cljs.user/*clojurescript-version*")]
       (seq (:value response)))
     (catch Exception _
       false)))
