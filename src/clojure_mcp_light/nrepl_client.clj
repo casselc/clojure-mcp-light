@@ -142,37 +142,31 @@
         _ (write-bencode-msg output msg)
         msgs (->> (message-seq input)
                   (decode-messages)
-                  (filter-id id)
-                  (take-until-done)
-                  (doall))]
-    msgs))
+                  (filter-id id))]
+    (take-until-done (cond->> msgs
+                       session-id (filter-session session-id)))))
 
 (defn merge-response
-  "Merge multiple nREPL response messages into a single result map.
+  "Combines the provided seq of response messages into a single response map.
 
-  Combines:
-  - :value - last value (or vector of all values if multiple)
-  - :values - vector of all values
-  - :out - concatenated stdout
-  - :err - concatenated stderr
-  - :status - set of all status values
-  - :ns - last namespace
-  - All other fields from messages (last value wins)"
-  [messages]
+   Certain message slots are combined in special ways:
+
+     - only the last :ns is retained
+     - :value is accumulated into an ordered collection
+     - :status and :session are accumulated into a set
+     - string values (associated with e.g. :out and :err) are concatenated"
+  [responses]
   (reduce
-   (fn [acc msg]
-     (-> acc
-         ;; First merge all fields from msg (last value wins for non-special keys)
-         (merge (dissoc msg :value :out :err :status :values))
-         ;; Then handle special accumulation/concatenation cases
-         (cond->
-          (:value msg) (-> (assoc :value (:value msg))
-                           (update :values (fnil conj []) (:value msg)))
-          (:out msg) (update :out (fnil str "") (:out msg))
-          (:err msg) (update :err (fnil str "") (:err msg))
-          (:status msg) (update :status (fnil into #{}) (:status msg)))))
-   {}
-   messages))
+   (fn [m [k v]]
+     (case k
+       (:id :ns) (assoc m k v)
+       :value (update-in m [k] (fnil conj []) v)
+       :status (update-in m [k] (fnil into #{}) v)
+       :session (update-in m [k] (fnil conj #{}) v)
+       (if (string? v)
+         (update-in m [k] #(str % v))
+         (assoc m k v))))
+   {} (apply concat responses)))
 
 (defn send-op
   "Send operation and return merged response.
@@ -273,7 +267,7 @@
       (fn [socket out in]
         (let [conn (make-connection socket out in host port)
               response (eval-nrepl* conn code)]
-          (:value response))))
+          (last (:value response)))))
     (catch Exception _
       nil)))
 

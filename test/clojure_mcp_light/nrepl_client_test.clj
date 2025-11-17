@@ -181,8 +181,7 @@
   (testing "merges single value message"
     (let [msgs [{:id "1" :value "42" :ns "user"}]
           result (nrepl/merge-response msgs)]
-      (is (= "42" (:value result)))
-      (is (= ["42"] (:values result)))
+      (is (= ["42"] (:value result)))
       (is (= "user" (:ns result)))))
 
   (testing "preserves custom fields from describe response"
@@ -201,8 +200,7 @@
                 {:id "1" :value "second"}
                 {:id "1" :value "third"}]
           result (nrepl/merge-response msgs)]
-      (is (= "third" (:value result)))
-      (is (= ["first" "second" "third"] (:values result)))))
+      (is (= ["first" "second" "third"] (:value result)))))
 
   (testing "concatenates output streams"
     (let [msgs [{:id "1" :out "line1\n"}
@@ -224,7 +222,8 @@
                 {:id "1" :ns "foo.bar" :value "2"}
                 {:id "1" :ns "baz.qux" :value "3"}]
           result (nrepl/merge-response msgs)]
-      (is (= "baz.qux" (:ns result)))))
+      (is (= "baz.qux" (:ns result)))
+      (is (= ["1" "2" "3"] (:value result)))))
 
   (testing "handles exception fields"
     (let [msgs [{:id "1" :ex "NPE" :root-ex "RootException"}]
@@ -238,8 +237,7 @@
                 {:id "123" :ns "user" :value "42"}
                 {:id "123" :status ["done"]}]
           result (nrepl/merge-response msgs)]
-      (is (= "42" (:value result)))
-      (is (= ["nil" "42"] (:values result)))
+      (is (= ["nil" "42"] (:value result)))
       (is (= "printing...\n" (:out result)))
       (is (= "user" (:ns result)))
       (is (contains? (:status result) "done"))))
@@ -247,8 +245,7 @@
   (testing "handles empty message sequence"
     (let [result (nrepl/merge-response [])]
       (is (map? result))
-      (is (nil? (:value result)))
-      (is (nil? (:values result))))))
+      (is (nil? (:value result))))))
 
 ;; ============================================================================
 ;; Connection map tests
@@ -323,7 +320,7 @@
                       (nrepl/filter-id "x")
                       (nrepl/take-until-done)
                       (nrepl/merge-response))]
-      (is (= "42" (:value result)))
+      (is (= ["42"] (:value result)))
       (is (= "line1\n" (:out result)))
       (is (contains? (:status result) "done")))))
 
@@ -347,7 +344,7 @@
           conn {:input nil :output nil :host "localhost" :port 7888}
           result (with-redefs [nrepl/messages-for-id (fn [_ _] msgs)]
                    (nrepl/eval-nrepl* conn "(+ 1 2)"))]
-      (is (= "42" (:value result)))
+      (is (= ["42"] (:value result)))
       (is (= "user" (:ns result)))))
 
   (testing "clone-session* with connection"
