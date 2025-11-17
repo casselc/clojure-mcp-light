@@ -14,9 +14,18 @@
   (testing "passes through strings unchanged"
     (is (= "already-string" (nrepl/bytes->str "already-string"))))
 
-  (testing "converts other types to strings"
-    (is (= "42" (nrepl/bytes->str 42)))
-    (is (= ":keyword" (nrepl/bytes->str :keyword)))))
+  (testing "passes through other types unchanged"
+    (is (= 42 (nrepl/bytes->str 42)))
+    (is (= :keyword (nrepl/bytes->str :keyword))))
+
+  (testing "recursively converts nested byte arrays in vectors"
+    (let [result (nrepl/bytes->str [(.getBytes "a") (.getBytes "b") "c"])]
+      (is (= ["a" "b" "c"] result))))
+
+  (testing "recursively converts nested byte arrays in maps"
+    (let [result (nrepl/bytes->str {"key" (.getBytes "value")
+                                    (.getBytes "bkey") "string"})]
+      (is (= {"key" "value" "bkey" "string"} result)))))
 
 (deftest read-msg-test
   (testing "converts string keys to keywords"

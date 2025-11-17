@@ -9,26 +9,35 @@
 ;; Message encoding/decoding
 ;; ============================================================================
 
-(defn bytes->str [x]
-  (if (bytes? x) (String. (bytes x))
-      (str x)))
+(defmulti bytes->str
+  "Recursively convert byte arrays to strings in nested structures"
+  class)
+
+(defmethod bytes->str :default
+  [x]
+  x)
+
+(defmethod bytes->str (Class/forName "[B")
+  [^bytes x]
+  (String. x "UTF-8"))
+
+(defmethod bytes->str clojure.lang.IPersistentVector
+  [v]
+  (mapv bytes->str v))
+
+(defmethod bytes->str clojure.lang.IPersistentMap
+  [m]
+  (->> m
+       (map (fn [[k v]] [(bytes->str k) (bytes->str v)]))
+       (into {})))
 
 (defn read-msg
   "Decode a raw bencode message map into a Clojure map with keyword keys.
-  Handles byte conversion for values, :status, and :sessions fields."
+  Recursively converts all byte arrays to strings."
   [msg]
-  (let [res (zipmap (map keyword (keys msg))
-                    (map #(if (bytes? %)
-                            (String. (bytes %))
-                            %)
-                         (vals msg)))
-        res (if-let [status (:status res)]
-              (assoc res :status (mapv bytes->str status))
-              res)
-        res (if-let [status (:sessions res)]
-              (assoc res :sessions (mapv bytes->str status))
-              res)]
-    res))
+  (let [decoded (bytes->str msg)]
+    (zipmap (map keyword (keys decoded))
+            (vals decoded))))
 
 (defn coerce-long [x]
   (if (string? x) (Long/parseLong x) x))
