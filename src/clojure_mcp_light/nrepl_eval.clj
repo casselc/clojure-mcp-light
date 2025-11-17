@@ -1,3 +1,5 @@
+(babashka.deps/add-deps '{:deps {parinferish/parinferish {:mvn/version "0.8.0"}}})
+
 (ns clojure-mcp-light.nrepl-eval
   "nREPL client implementation with automatic delimiter repair and timeout handling"
   (:require [babashka.fs :as fs]
