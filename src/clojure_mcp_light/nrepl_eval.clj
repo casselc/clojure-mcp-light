@@ -1,7 +1,6 @@
 (ns clojure-mcp-light.nrepl-eval
   "nREPL client implementation with automatic delimiter repair and timeout handling"
   (:require [babashka.fs :as fs]
-            [bencode.core :as b]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure-mcp-light.delimiter-repair :refer [fix-delimiters]]
@@ -257,22 +256,12 @@
   "Detect if the nREPL session is in CLJS mode by evaluating *clojurescript-version*.
    Returns true if in CLJS mode, false if in CLJ mode.
    Must use the same session to get accurate mode detection."
-  [out in session]
-  (let [cljs-check-id (nc/next-id)]
-    (nc/write-bencode-msg out {"op" "eval"
-                               "code" "*clojurescript-version*"
-                               "id" cljs-check-id
-                               "session" session})
-    ;; Read all responses until we get "done" status
-    (loop [has-value? false]
-      (when-let [raw (try (b/read-bencode in) (catch Exception _ nil))]
-        (let [resp (nc/read-msg raw)]
-          (when (and (= (:session resp) session)
-                     (= (:id resp) cljs-check-id))
-            (let [has-val (or has-value? (some? (:value resp)))]
-              (if (some #{"done"} (:status resp))
-                has-val
-                (recur has-val)))))))))
+  [conn]
+  (try
+    (let [response (nc/eval-nrepl* conn "*clojurescript-version*")]
+      (seq (:value response)))
+    (catch Exception _
+      false)))
 
 (defn format-divider
   "Format the output divider with namespace, env-type, and mode information.
@@ -365,7 +354,7 @@
               conn-with-session (assoc conn :session-id session-id)
               ;; Detect CLJS mode only for shadow-cljs environments
               cljs-mode? (when (= env-type :shadow)
-                           (detect-cljs-mode out in session-id))
+                           (detect-cljs-mode conn-with-session))
               eval-id (nc/next-id)]
           (try
             ;; Evaluate expression using messages-for-id
