@@ -30,7 +30,7 @@
    server restarts. Use --reset-session to explicitly clean up sessions."
   [{:keys [host port session-id env-type]}]
   (try
-    (if-let [active-sessions (nc/get-active-sessions host port)]
+    (if-let [active-sessions (nc/ls-sessions host port)]
       (if (some #{session-id} active-sessions)
         {:status :active
          :host host
@@ -188,7 +188,7 @@
         ;; Validate each port and gather info
         results (for [port all-ports]
                   (let [source (if (= port port-file-port) :nrepl-port-file :lsof)
-                        sessions (nc/get-active-sessions "localhost" port)
+                        sessions (nc/ls-sessions "localhost" port)
                         valid (some? sessions)]
                     (if valid
                       ;; Valid nREPL - get env type and project dir
@@ -289,11 +289,16 @@
 
   Takes a connection map with :input, :output, :host, :port."
   [conn]
-  (let [{:keys [host port input output]} conn
+  (let [{:keys [host port]} conn
         existing-data (nc/slurp-nrepl-session host port)
-        existing-id (:session-id existing-data)]
+        existing-id (:session-id existing-data)
+        ;; Validate existing session by checking if it's in the active sessions list
+        sessions-resp (when existing-id (nc/ls-sessions* conn))
+        session-valid? (and existing-id
+                            sessions-resp
+                            (some #{existing-id} (:sessions sessions-resp)))]
     ;; Validate existing session
-    (if (nc/validate-session-on-socket output input existing-id)
+    (if session-valid?
       ;; Session still valid, return existing data
       existing-data
       ;; Need new session

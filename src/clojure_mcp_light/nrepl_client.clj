@@ -221,52 +221,6 @@
     (fs/delete-if-exists session-file)))
 
 ;; ============================================================================
-;; Session validation
-;; ============================================================================
-
-(defn validate-session-on-socket
-  "Validate session ID on an open socket by checking ls-sessions.
-   Returns the session-id if valid, nil otherwise."
-  [out in session-id]
-  (when session-id
-    (let [id (next-id)
-          _ (write-bencode-msg out {"op" "ls-sessions" "id" id})
-          response (read-msg (b/read-bencode in))
-          active-sessions (:sessions response)]
-      (when (some #{session-id} active-sessions)
-        session-id))))
-
-(defn get-active-sessions
-  "Get list of active session IDs from nREPL server.
-   Returns nil if unable to connect or on error.
-   Uses a 500ms timeout for connection and read operations."
-  [host port]
-  (try
-    (with-socket host port 500
-      (fn [_socket out in]
-        (let [id (next-id)
-              _ (write-bencode-msg out {"op" "ls-sessions" "id" id})
-              response (read-msg (b/read-bencode in))]
-          (:sessions response))))
-    (catch Exception _
-      nil)))
-
-(defn validate-session
-  "Check if session-id is still valid on the nREPL server.
-   Returns the session-id if valid, nil otherwise.
-   If invalid, deletes the session file."
-  [session-id host port]
-  (when session-id
-    (if-let [active-sessions (get-active-sessions host port)]
-      (if (some #{session-id} active-sessions)
-        session-id
-        (do
-          (delete-nrepl-session host port)
-          nil))
-      ;; If we can't check (server down?), assume session is valid
-      session-id)))
-
-;; ============================================================================
 ;; Basic nREPL operations
 ;; ============================================================================
 
@@ -320,5 +274,19 @@
         (let [conn (make-connection socket out in host port)
               response (eval-nrepl* conn code)]
           (:value response))))
+    (catch Exception _
+      nil)))
+
+(defn ls-sessions
+  "Get list of active session IDs from nREPL server.
+   Returns nil if unable to connect or on error.
+   Uses a 500ms timeout for connection and read operations."
+  [host port]
+  (try
+    (with-socket host port 500
+      (fn [socket out in]
+        (let [conn (make-connection socket out in host port)
+              response (ls-sessions* conn)]
+          (:sessions response))))
     (catch Exception _
       nil)))
