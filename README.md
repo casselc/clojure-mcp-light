@@ -130,7 +130,7 @@ Clojure-mcp-light provides two main tools:
    - `clj-paren-repair-claude-hook` - Hook for automatic delimiter fixing
    - `clj-nrepl-eval` - nREPL evaluation tool
 
-4. Configure Claude Code hooks in `~/.claude/settings.local.json`:
+4. Configure Claude Code hooks in `~/.claude/settings.json`:
    ```json
    {
      "hooks": {
