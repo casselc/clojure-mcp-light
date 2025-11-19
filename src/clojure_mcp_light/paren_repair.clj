@@ -46,18 +46,24 @@
 ;; Main Entry Point
 ;; ============================================================================
 
+(defn show-help []
+  (println "Usage: clj-paren-repair FILE [FILE ...]")
+  (println)
+  (println "Fix delimiter errors and format Clojure files.")
+  (println)
+  (println "Features enabled by default:")
+  (println "  - Delimiter error detection and repair")
+  (println "  - cljfmt formatting")
+  (println)
+  (println "Options:")
+  (println "  -h, --help    Show this help message"))
+
 (defn -main [& args]
-  (if (empty? args)
+  (if (or (empty? args)
+          (some #{"--help" "-h"} args))
     (do
-      (binding [*out* *err*]
-        (println "Usage: clj-paren-repair FILE [FILE ...]")
-        (println)
-        (println "Fix delimiter errors and format Clojure files.")
-        (println)
-        (println "Features enabled by default:")
-        (println "  - Delimiter error detection and repair")
-        (println "  - cljfmt formatting"))
-      (System/exit 1))
+      (show-help)
+      (System/exit (if (empty? args) 1 0)))
 
     (let [stats-path (stats/normalize-stats-path
                       (str (fs/home) "/.clojure-mcp-light/stats.log"))]
