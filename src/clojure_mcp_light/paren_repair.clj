@@ -1,13 +1,13 @@
 (babashka.deps/add-deps '{:deps {dev.weavejester/cljfmt {:mvn/version "0.15.5"}
                                  parinferish/parinferish {:mvn/version "0.8.0"}
-                                 com.taoensso/timbre {:mvn/version "6.8.0"}}})
+                                 #_#_com.taoensso/timbre {:mvn/version "6.8.0"}}})
 
 (ns clojure-mcp-light.paren-repair
   "Standalone CLI tool for fixing delimiter errors and formatting Clojure files"
   (:require [babashka.fs :as fs]
             [clojure.string :as string]
             [clojure-mcp-light.hook :as hook :refer [clojure-file? fix-and-format-file!]]
-            [taoensso.timbre :as timbre]))
+            #_[taoensso.timbre :as timbre]))
 
 ;; ============================================================================
 ;; File Processing
@@ -67,7 +67,7 @@
 
     ;; Disable logging for standalone tool
     (do
-      (timbre/set-config! {:appenders {}})
+      #_(timbre/set-config! {:appenders {}})
 
       (binding [hook/*enable-cljfmt* true]
         (try
