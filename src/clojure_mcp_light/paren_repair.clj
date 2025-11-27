@@ -1,5 +1,6 @@
 (babashka.deps/add-deps '{:deps {dev.weavejester/cljfmt {:mvn/version "0.15.5"}
-                                 parinferish/parinferish {:mvn/version "0.8.0"}}})
+                                 parinferish/parinferish {:mvn/version "0.8.0"}
+                                 com.taoensso/timbre {:mvn/version "6.8.0"}}})
 
 (ns clojure-mcp-light.paren-repair
   "Standalone CLI tool for fixing delimiter errors and formatting Clojure files"
