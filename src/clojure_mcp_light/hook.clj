@@ -14,7 +14,7 @@
              :refer [delimiter-error? fix-delimiters actual-delimiter-error?]]
             [clojure-mcp-light.stats :as stats]
             [clojure-mcp-light.tmp :as tmp]
-            [taoensso.timbre :as timbre]))
+            #_[taoensso.timbre :as timbre]))
 
 ;; ============================================================================
 ;; Configuration
@@ -142,20 +142,20 @@
         (if (not= original formatted)
           (do
             (stats/log-stats! :cljfmt-needed-formatting {:file-path file-path})
-            (timbre/debug "Running cljfmt fix on:" file-path)
+            #_(timbre/debug "Running cljfmt fix on:" file-path)
             ;; Use cljfmt.main to respect user's environment config
             (cljfmt.main/-main "fix" file-path)
             (stats/log-stats! :cljfmt-fix-succeeded {:file-path file-path})
-            (timbre/debug "  cljfmt succeeded")
+            #_(timbre/debug "  cljfmt succeeded")
             true)
           (do
             (stats/log-stats! :cljfmt-already-formatted {:file-path file-path})
-            (timbre/debug "  No formatting needed")
+            #_(timbre/debug "  No formatting needed")
             false)))
       (catch Exception e
         (stats/log-stats! :cljfmt-fix-failed {:file-path file-path
                                               :ex-message (ex-message e)})
-        (timbre/debug "  cljfmt error:" (.getMessage e))
+        #_(timbre/debug "  cljfmt error:" (.getMessage e))
         false))))
 
 (defn backup-file
@@ -215,12 +215,12 @@
       (if has-delimiter-error?
         ;; Has delimiter error - try to fix
         (do
-          (timbre/debug "  Delimiter error detected, attempting fix")
+          #_(timbre/debug "  Delimiter error detected, attempting fix")
           (if-let [fixed-content (fix-delimiters file-content)]
             (do
               (when actual-error?
                 (stats/log-event! :delimiter-fixed stats-event-prefix file-path))
-              (timbre/debug "  Fix successful, applying fix")
+              #_(timbre/debug "  Fix successful, applying fix")
               (spit file-path fixed-content :encoding "UTF-8")
               (let [formatted? (when enable-cljfmt
                                  (run-cljfmt file-path))]
@@ -231,7 +231,7 @@
             (do
               (when actual-error?
                 (stats/log-event! :delimiter-fix-failed stats-event-prefix file-path))
-              (timbre/error "  Delimiter fix failed")
+              #_(timbre/error "  Delimiter fix failed")
               {:success false
                :delimiter-fixed false
                :formatted false
@@ -239,7 +239,7 @@
         ;; No delimiter error - just format if enabled
         (do
           (stats/log-event! :delimiter-ok stats-event-prefix file-path)
-          (timbre/debug "  No delimiter errors")
+          #_(timbre/debug "  No delimiter errors")
           (let [formatted? (when enable-cljfmt
                              (run-cljfmt file-path))]
             {:success true
@@ -247,7 +247,7 @@
              :formatted (boolean formatted?)
              :message (if formatted? "Formatted" "No changes needed")}))))
     (catch Exception e
-      (timbre/error "  Unexpected error processing file:" (.getMessage e))
+      #_(timbre/error "  Unexpected error processing file:" (.getMessage e))
       {:success false
        :delimiter-fixed false
        :formatted false
@@ -293,17 +293,17 @@
   [{:keys [tool_input]}]
   (let [{:keys [file_path content]} tool_input]
     (when (clojure-file? file_path)
-      (timbre/debug "PreWrite: clojure" file_path)
+      #_(timbre/debug "PreWrite: clojure" file_path)
       (if (delimiter-error? content)
         (let [actual-error? (actual-delimiter-error? content)]
           (when actual-error?
             (stats/log-event! :delimiter-error "PreToolUse:Write" file_path))
-          (timbre/debug "  Delimiter error detected, attempting fix")
+          #_(timbre/debug "  Delimiter error detected, attempting fix")
           (if-let [fixed-content (fix-delimiters content)]
             (do
               (when actual-error?
                 (stats/log-event! :delimiter-fixed "PreToolUse:Write" file_path))
-              (timbre/debug "  Fix successful, allowing write with updated content")
+              #_(timbre/debug "  Fix successful, allowing write with updated content")
               {:hookSpecificOutput
                {:hookEventName "PreToolUse"
                 :updatedInput {:file_path file_path
@@ -311,37 +311,37 @@
             (do
               (when actual-error?
                 (stats/log-event! :delimiter-fix-failed "PreToolUse:Write" file_path))
-              (timbre/debug "  Fix failed, denying write")
+              #_(timbre/debug "  Fix failed, denying write")
               {:hookSpecificOutput
                {:hookEventName "PreToolUse"
                 :permissionDecision "deny"
                 :permissionDecisionReason "Delimiter errors found and could not be auto-fixed"}})))
         (do
           (stats/log-event! :delimiter-ok "PreToolUse:Write" file_path)
-          (timbre/debug "  No delimiter errors, allowing write")
+          #_(timbre/debug "  No delimiter errors, allowing write")
           nil)))))
 
 (defmethod process-hook ["PreToolUse" "Edit"]
   [{:keys [tool_input session_id]}]
   (let [{:keys [file_path]} tool_input]
     (when (clojure-file? file_path)
-      (timbre/debug "PreEdit: clojure" file_path)
+      #_(timbre/debug "PreEdit: clojure" file_path)
 
       ;; Only create backup if revert is enabled
       (when *enable-revert*
         (try
           (let [backup (backup-file file_path session_id)]
-            (timbre/debug "  Created backup:" backup)
+            #_(timbre/debug "  Created backup:" backup)
             nil)
           (catch Exception e
-            (timbre/debug "  Edit processing failed:" (.getMessage e))
+            #_(timbre/debug "  Edit processing failed:" (.getMessage e))
             nil))))))
 
 (defmethod process-hook ["PostToolUse" "Write"]
   [{:keys [tool_input tool_response]}]
   (let [{:keys [file_path]} tool_input]
     (when (and (clojure-file? file_path) tool_response *enable-cljfmt*)
-      (timbre/debug "PostWrite: clojure cljfmt" file_path)
+      #_(timbre/debug "PostWrite: clojure cljfmt" file_path)
       (run-cljfmt file_path)
       nil)))
 
@@ -349,7 +349,7 @@
   [{:keys [tool_input tool_response session_id]}]
   (let [{:keys [file_path]} tool_input]
     (when (and (clojure-file? file_path) tool_response)
-      (timbre/debug "PostEdit: clojure" file_path)
+      #_(timbre/debug "PostEdit: clojure" file_path)
       (let [backup (tmp/backup-path {:session-id session_id} file_path)
             backup-exists? (fs/exists? backup)
             result (fix-and-format-file! file_path *enable-cljfmt* "PostToolUse:Edit")]
@@ -358,12 +358,12 @@
           (if (:success result)
             ;; Success - delete backup and return nil
             (do
-              (timbre/debug "  Processing successful, deleting backup")
+              #_(timbre/debug "  Processing successful, deleting backup")
               nil)
             ;; Failure - handle backup restore based on revert setting
             (if (and *enable-revert* backup-exists?)
               (do
-                (timbre/debug "  Fix failed, restoring from backup:" backup)
+                #_(timbre/debug "  Fix failed, restoring from backup:" backup)
                 (restore-file file_path backup)
                 {:decision "block"
                  :reason (str "Delimiter errors could not be auto-fixed. File was restored from backup to previous state: " file_path)
@@ -371,7 +371,7 @@
                  {:hookEventName "PostToolUse"
                   :additionalContext "There are delimiter errors in the file. So we restored from backup."}})
               (do
-                (timbre/debug "  Fix failed, revert disabled - blocking without restore")
+                #_(timbre/debug "  Fix failed, revert disabled - blocking without restore")
                 {:decision "block"
                  :reason (str "Delimiter errors could not be auto-fixed in file: " file_path)
                  :hookSpecificOutput
@@ -383,19 +383,19 @@
 
 (defmethod process-hook ["SessionEnd" nil]
   [{:keys [session_id]}]
-  (timbre/info "SessionEnd: cleaning up session" session_id)
+  #_(timbre/info "SessionEnd: cleaning up session" session_id)
   (try
     (let [report (tmp/cleanup-session! {:session-id session_id})]
-      (timbre/info "  Cleanup attempted for session IDs:" (:attempted report))
-      (timbre/info "  Deleted directories:" (:deleted report))
-      (timbre/info "  Skipped (non-existent):" (:skipped report))
+      #_(timbre/info "  Cleanup attempted for session IDs:" (:attempted report))
+      #_(timbre/info "  Deleted directories:" (:deleted report))
+      #_(timbre/info "  Skipped (non-existent):" (:skipped report))
       (when (seq (:errors report))
-        (timbre/warn "  Errors during cleanup:")
+        #_(timbre/warn "  Errors during cleanup:")
         (doseq [{:keys [path error]} (:errors report)]
-          (timbre/warn "    " path "-" error)))
+          #_(timbre/warn "    " path "-" error)))
       nil)
     (catch Exception e
-      (timbre/error "  Unexpected error during cleanup:" (.getMessage e))
+      #_(timbre/error "  Unexpected error during cleanup:" (.getMessage e))
       nil)))
 
 (defn -main [& args]
@@ -406,7 +406,7 @@
         enable-stats? (:stats options)
         stats-path (stats/normalize-stats-path (:stats-file options))]
 
-    (timbre/set-config!
+    #_(timbre/set-config!
      {:appenders {:spit (assoc
                          (timbre/spit-appender {:fname log-file})
                          :enabled? enable-logging?
@@ -422,20 +422,20 @@
               stats/*stats-file-path* stats-path]
       (try
         (let [input-json (slurp *in*)
-              _ (timbre/debug "INPUT:" input-json)
+              _ #_(timbre/debug "INPUT:" input-json)
               _ (when *enable-cljfmt*
-                  (timbre/debug "cljfmt formatting is ENABLED"))
+                  #_(timbre/debug "cljfmt formatting is ENABLED"))
               _ (when stats/*enable-stats*
-                  (timbre/debug "stats tracking is ENABLED, writing to:" stats/*stats-file-path*))
+                  #_(timbre/debug "stats tracking is ENABLED, writing to:" stats/*stats-file-path*))
               hook-input (json/parse-string input-json true)
               response (process-hook hook-input)
-              _ (timbre/debug "OUTPUT:" (json/generate-string response))]
+              _ #_(timbre/debug "OUTPUT:" (json/generate-string response))]
           (when response
             (println (json/generate-string response)))
           (System/exit 0))
         (catch Exception e
-          (timbre/error "Hook error:" (.getMessage e))
-          (timbre/error "Stack trace:" (with-out-str (.printStackTrace e)))
+          #_(timbre/error "Hook error:" (.getMessage e))
+          #_(timbre/error "Stack trace:" (with-out-str (.printStackTrace e)))
           (binding [*out* *err*]
             (println "Hook error:" (.getMessage e))
             (println "Stack trace:" (with-out-str (.printStackTrace e))))
