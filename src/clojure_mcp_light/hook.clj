@@ -422,14 +422,14 @@
               stats/*stats-file-path* stats-path]
       (try
         (let [input-json (slurp *in*)
-              _ #_(timbre/debug "INPUT:" input-json)
+              #__ #_(timbre/debug "INPUT:" input-json)
               _ (when *enable-cljfmt*
                   #_(timbre/debug "cljfmt formatting is ENABLED"))
               _ (when stats/*enable-stats*
                   #_(timbre/debug "stats tracking is ENABLED, writing to:" stats/*stats-file-path*))
               hook-input (json/parse-string input-json true)
               response (process-hook hook-input)
-              _ #_(timbre/debug "OUTPUT:" (json/generate-string response))]
+              #__ #_(timbre/debug "OUTPUT:" (json/generate-string response))]
           (when response
             (println (json/generate-string response)))
           (System/exit 0))
