@@ -100,17 +100,16 @@ Add to your custom instructions file:
 The command `clj-nrepl-eval` is installed on your path for evaluating Clojure code via nREPL.
 
 **Discover nREPL servers:**
-\`\`\`bash
-clj-nrepl-eval --discover-ports
-\`\`\`
+
+`clj-nrepl-eval --discover-ports`
 
 **Evaluate code:**
-\`\`\`bash
-clj-nrepl-eval -p <port> "<clojure-code>"
 
-# With timeout (milliseconds)
-clj-nrepl-eval -p <port> --timeout 5000 "<clojure-code>"
-\`\`\`
+`clj-nrepl-eval -p <port> "<clojure-code>"`
+
+With timeout (milliseconds)
+
+`clj-nrepl-eval -p <port> --timeout 5000 "<clojure-code>"`
 
 The REPL session persists between evaluations - namespaces and state are maintained.
 Always use `:reload` when requiring namespaces to pick up changes.
@@ -425,10 +424,9 @@ Add to your global or local custom instructions file
 
 The command `clj-paren-repair` is installed on your path.
 
-\`\`\`bash
-clj-paren-repair <files>
-clj-paren-repair path/to/file1.clj path/to/file2.clj path/to/file3.clj
-\`\`\`
+Examples:
+`clj-paren-repair <files>`
+`clj-paren-repair path/to/file1.clj path/to/file2.clj path/to/file3.clj`
 
 **IMPORTANT:** Do NOT try to manually repair parenthesis errors.
 If you encounter unbalanced delimiters, run `clj-paren-repair` on the file
