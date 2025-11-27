@@ -210,7 +210,7 @@
       (when (and has-delimiter-error? actual-error?)
         (stats/log-event! :delimiter-error stats-event-prefix file-path))
 
-      (timbre/debug "  Delimiter error:" has-delimiter-error?)
+      #_(timbre/debug "  Delimiter error:" has-delimiter-error?)
 
       (if has-delimiter-error?
         ;; Has delimiter error - try to fix
