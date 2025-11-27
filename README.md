@@ -25,6 +25,25 @@ These tools solve both problems.
 | [`clj-paren-repair-claude-hook`](#clj-paren-repair-claude-hook) | Claude Code (or any LLM with hooks) |
 | [`clj-paren-repair`](#clj-paren-repair) | Gemini CLI, Codex CLI, any LLM with shell |
 
+## Quick Install
+
+**Install hook (for automatic delimiter repair in Claude Code):**
+```bash
+bbin install https://github.com/bhauman/clojure-mcp-light.git --tag v0.2.1
+```
+
+**Install nREPL eval tool:**
+```bash
+bbin install https://github.com/bhauman/clojure-mcp-light.git --tag v0.2.1 --as clj-nrepl-eval --main-opts '["-m" "clojure-mcp-light.nrepl-eval"]'
+```
+
+**Install on-demand repair tool:**
+```bash
+bbin install https://github.com/bhauman/clojure-mcp-light.git --tag v0.2.1 --as clj-paren-repair --main-opts '["-m" "clojure-mcp-light.paren-repair"]'
+```
+
+See individual tool sections below for important configuration and usage details.
+
 ## Requirements
 
 - [Babashka](https://github.com/babashka/babashka) - Fast Clojure scripting (includes cljfmt)
