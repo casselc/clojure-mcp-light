@@ -5,9 +5,9 @@
 Simple CLI tools for LLM coding assistants working with Clojure.
 
 **TL;DR:** Three CLI tools for Clojure development with LLM coding assistants:
-- `clj-nrepl-eval` - nREPL evaluation from command line
-- `clj-paren-repair-claude-hook` - Auto-fix delimiters via hooks (Claude Code)
-- `clj-paren-repair` - On-demand delimiter fix (Gemini CLI, Codex, etc.)
+- [`clj-nrepl-eval`](#clj-nrepl-eval-llm-nrepl-connection-without-an-mcp) - nREPL evaluation from command line
+- [`clj-paren-repair-claude-hook`](#clj-paren-repair-claude-hook) - Auto-fix delimiters via hooks (Claude Code)
+- [`clj-paren-repair`](#clj-paren-repair) - On-demand delimiter fix (Gemini CLI, Codex, etc.)
 
 ## The Problem
 
@@ -19,15 +19,16 @@ These tools solve both problems.
 
 ## Quick Reference
 
-| Tool | Use Case | Token Cost |
-|------|----------|------------|
-| `clj-nrepl-eval` | REPL evaluation from any LLM | Some |
-| `clj-paren-repair-claude-hook` | Claude Code (or any LLM with hooks) | Zero |
-| `clj-paren-repair` | Gemini CLI, Codex CLI, any LLM with shell | Some |
+| Tool | Use Case |
+|------|----------|
+| [`clj-nrepl-eval`](#clj-nrepl-eval-llm-nrepl-connection-without-an-mcp) | REPL evaluation from any LLM |
+| [`clj-paren-repair-claude-hook`](#clj-paren-repair-claude-hook) | Claude Code (or any LLM with hooks) |
+| [`clj-paren-repair`](#clj-paren-repair) | Gemini CLI, Codex CLI, any LLM with shell |
 
 ## Requirements
 
 - [Babashka](https://github.com/babashka/babashka) - Fast Clojure scripting (includes cljfmt)
+  - **Note:** Version 1.12.212 or later is required when working with Codex and other tools that sandbox bash execution
 - [bbin](https://github.com/babashka/bbin) - Babashka package manager
 
 **Optional:**
